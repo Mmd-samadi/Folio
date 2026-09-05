@@ -1,56 +1,97 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:nexus_chat/core/theme/folio_colors.dart';
 
 class AppTheme {
   AppTheme._();
 
-  static const _seedColor = Color(0xFF6750A4);
-
-  static const userBubbleLight = Color(0xFF6750A4);
-  static const userBubbleDark = Color(0xFF7F67BE);
-  static const assistantBubbleLight = Color(0xFFE8DEF8);
-  static const assistantBubbleDark = Color(0xFF3B3842);
-
-  static ThemeData get lightTheme {
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.light,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: _seedColor,
-        brightness: Brightness.light,
-      ),
-      appBarTheme: const AppBarTheme(centerTitle: true),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(24),
-          borderSide: BorderSide.none,
-        ),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 20,
-          vertical: 12,
-        ),
-      ),
-    );
-  }
+  // Kept for existing chat widgets (reader chat will reuse later).
+  static const userBubbleLight = FolioColors.accent;
+  static const userBubbleDark = FolioColors.accent;
+  static const assistantBubbleLight = FolioColors.surfaceElevated;
+  static const assistantBubbleDark = FolioColors.surfaceElevated;
 
   static ThemeData get darkTheme {
+    final baseText = GoogleFonts.interTextTheme(ThemeData.dark().textTheme);
+
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: _seedColor,
-        brightness: Brightness.dark,
+      scaffoldBackgroundColor: FolioColors.background,
+      colorScheme: const ColorScheme.dark(
+        primary: FolioColors.accent,
+        onPrimary: FolioColors.onAccent,
+        secondary: FolioColors.accent,
+        surface: FolioColors.surface,
+        onSurface: FolioColors.textPrimary,
+        error: FolioColors.danger,
+        outline: FolioColors.border,
       ),
-      appBarTheme: const AppBarTheme(centerTitle: true),
+      textTheme: baseText.apply(
+        bodyColor: FolioColors.textPrimary,
+        displayColor: FolioColors.textPrimary,
+      ),
+      appBarTheme: AppBarTheme(
+        backgroundColor: FolioColors.background,
+        foregroundColor: FolioColors.textPrimary,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        centerTitle: false,
+        systemOverlayStyle: SystemUiOverlayStyle.light,
+        titleTextStyle: GoogleFonts.inter(
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+          color: FolioColors.textPrimary,
+        ),
+      ),
+      dividerTheme: const DividerThemeData(
+        color: FolioColors.border,
+        thickness: 1,
+        space: 1,
+      ),
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: FolioColors.accent,
+        foregroundColor: FolioColors.onAccent,
+        elevation: 4,
+        shape: CircleBorder(),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: FolioColors.surfaceElevated,
+        contentTextStyle: GoogleFonts.inter(
+          color: FolioColors.textPrimary,
+          fontSize: 14,
+        ),
+        actionTextColor: FolioColors.accent,
+      ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(24),
-          borderSide: BorderSide.none,
+        fillColor: FolioColors.surfaceElevated,
+        hintStyle: GoogleFonts.inter(
+          color: FolioColors.textDim,
+          fontSize: 14,
         ),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 20,
-          vertical: 12,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(FolioColors.radiusButton),
+          borderSide: const BorderSide(color: FolioColors.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(FolioColors.radiusButton),
+          borderSide: const BorderSide(color: FolioColors.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(FolioColors.radiusButton),
+          borderSide: const BorderSide(color: FolioColors.accent, width: 1.5),
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: FolioColors.surface,
+        modalBackgroundColor: FolioColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(FolioColors.radiusSheet),
+          ),
         ),
       ),
     );
