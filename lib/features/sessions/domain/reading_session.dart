@@ -65,6 +65,31 @@ class ReadingSession {
       localPath: localPath ?? this.localPath,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'pdfName': pdfName,
+        'fromPage': fromPage,
+        'toPage': toPage,
+        'updatedAt': updatedAt.toIso8601String(),
+        'progress': progress,
+        'localPath': localPath,
+      };
+
+  factory ReadingSession.fromJson(Map<String, dynamic> json) {
+    return ReadingSession(
+      id: json['id'] as String? ?? '',
+      title: json['title'] as String? ?? 'Untitled',
+      pdfName: json['pdfName'] as String? ?? 'file.pdf',
+      fromPage: json['fromPage'] as int? ?? 1,
+      toPage: json['toPage'] as int? ?? 1,
+      updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ??
+          DateTime.now(),
+      progress: (json['progress'] as num?)?.toDouble() ?? 0,
+      localPath: json['localPath'] as String?,
+    );
+  }
 }
 
 class DetectedChapter {
@@ -88,4 +113,19 @@ class DetectedChapter {
       selected: selected ?? this.selected,
     );
   }
+}
+
+class PageRangeDraft {
+  const PageRangeDraft({
+    required this.fromPage,
+    required this.toPage,
+    this.title = '',
+  });
+
+  final int fromPage;
+  final int toPage;
+  final String title;
+
+  int get totalPages =>
+      (toPage >= fromPage && fromPage > 0) ? (toPage - fromPage + 1) : 0;
 }

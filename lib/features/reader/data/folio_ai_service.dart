@@ -9,7 +9,8 @@ import 'package:nexus_chat/features/chat/data/api_exception.dart';
 import 'package:nexus_chat/features/chat/data/network_exception.dart';
 
 class FolioAiService {
-  FolioAiService({GenerativeModel? model}) : _model = model ?? _createModel();
+  FolioAiService({GenerativeModel? model, String? apiKey})
+      : _model = model ?? _createModel(apiKey);
 
   final GenerativeModel _model;
 
@@ -18,11 +19,14 @@ class FolioAiService {
       'important definitions, and actionable insights. Keep each bullet concise '
       'but informative.';
 
-  static GenerativeModel _createModel() {
-    final apiKey = dotenv.env[AppConstants.apiKeyEnv];
-    if (apiKey == null || apiKey.isEmpty || apiKey == 'your_key_here') {
+  static GenerativeModel _createModel([String? overrideKey]) {
+    final fromSettings = overrideKey?.trim() ?? '';
+    final fromEnv = dotenv.env[AppConstants.apiKeyEnv]?.trim() ?? '';
+    final apiKey = fromSettings.isNotEmpty ? fromSettings : fromEnv;
+
+    if (apiKey.isEmpty || apiKey == 'your_key_here') {
       throw StateError(
-        'GEMINI_API_KEY is missing. Add it to your .env file.',
+        'GEMINI_API_KEY is missing. Add it in Settings or your .env file.',
       );
     }
 

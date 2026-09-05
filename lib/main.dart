@@ -3,19 +3,24 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:nexus_chat/core/constants/app_constants.dart';
 import 'package:nexus_chat/core/router/app_router.dart';
+import 'package:nexus_chat/core/storage/local_store.dart';
 import 'package:nexus_chat/core/theme/app_theme.dart';
 import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.dart';
+import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   pdfrxFlutterInitialize();
   await dotenv.load(fileName: '.env');
-  runApp(const FolioApp());
+  final store = await LocalStore.open();
+  runApp(FolioApp(store: store));
 }
 
 class FolioApp extends StatefulWidget {
-  const FolioApp({super.key});
+  const FolioApp({super.key, required this.store});
+
+  final LocalStore store;
 
   @override
   State<FolioApp> createState() => _FolioAppState();
@@ -23,24 +28,32 @@ class FolioApp extends StatefulWidget {
 
 class _FolioAppState extends State<FolioApp> {
   late final SessionsCubit _sessionsCubit;
+  late final SettingsCubit _settingsCubit;
   late final router = createAppRouter();
 
   @override
   void initState() {
     super.initState();
-    _sessionsCubit = SessionsCubit();
+    _sessionsCubit = SessionsCubit(store: widget.store);
+    _settingsCubit = SettingsCubit(store: widget.store);
+    _sessionsCubit.hydrate();
   }
 
   @override
   void dispose() {
     _sessionsCubit.close();
+    _settingsCubit.close();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider.value(
-      value: _sessionsCubit,
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider.value(value: _sessionsCubit),
+        BlocProvider.value(value: _settingsCubit),
+        RepositoryProvider.value(value: widget.store),
+      ],
       child: MaterialApp.router(
         debugShowCheckedModeBanner: false,
         title: AppConstants.appTitle,

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:nexus_chat/core/storage/local_store.dart';
 import 'package:nexus_chat/core/theme/folio_colors.dart';
 import 'package:nexus_chat/features/chat/data/api_exception.dart';
 import 'package:nexus_chat/features/chat/data/network_exception.dart';
@@ -12,6 +13,7 @@ import 'package:nexus_chat/features/reader/data/folio_ai_service.dart';
 import 'package:nexus_chat/features/reader/presentation/widgets/reader_sheets.dart';
 import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
 import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.dart';
+import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 class ReaderPage extends StatefulWidget {
@@ -52,7 +54,18 @@ class _ReaderPageState extends State<ReaderPage> {
   void initState() {
     super.initState();
     _bullets = List.of(_fallbackBullets);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final settings = context.read<SettingsCubit>().state;
+      setState(() {
+        _format = settings.format;
+        _length = settings.length;
+        _chatScope = settings.chatScope;
+        if (settings.customPrompt.trim().isNotEmpty) {
+          _prompt = settings.customPrompt;
+        }
+      });
+      _bootstrap();
+    });
   }
 
   @override
@@ -104,7 +117,8 @@ class _ReaderPageState extends State<ReaderPage> {
     });
 
     try {
-      final ai = FolioAiService();
+      final apiKey = context.read<SettingsCubit>().state.apiKey;
+      final ai = FolioAiService(apiKey: apiKey);
       final bullets = await ai.summarizePdf(
         pdfBytes: _pdfBytes!,
         format: _format,
@@ -172,7 +186,8 @@ class _ReaderPageState extends State<ReaderPage> {
         return;
       }
 
-      final reply = await FolioAiService().askAboutPdf(
+      final apiKey = context.read<SettingsCubit>().state.apiKey;
+      final reply = await FolioAiService(apiKey: apiKey).askAboutPdf(
         pdfBytes: _pdfBytes!,
         question: text,
         scope: _chatScope,
@@ -298,6 +313,7 @@ class _ReaderPageState extends State<ReaderPage> {
                   );
                   if (next != null && context.mounted) {
                     setState(() => _prompt = next);
+                    await context.read<SettingsCubit>().setCustomPrompt(next);
                     await _summarize(session);
                   }
                 } else if (action == 'export') {
@@ -400,11 +416,22 @@ class _ReaderPageState extends State<ReaderPage> {
           if (i > 0) const SizedBox(height: 16),
           InkWell(
             onLongPress: () {
+              final store = context.read<LocalStore>();
+              final messenger = ScaffoldMessenger.of(context);
               showAnnotationSheet(
                 context,
                 quote: _bullets[i],
-                onSave: (note) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                onSave: (note) async {
+                  await store.addAnnotation(
+                    SessionAnnotation(
+                      sessionId: session.id,
+                      quote: _bullets[i],
+                      note: note,
+                      createdAt: DateTime.now(),
+                    ),
+                  );
+                  if (!mounted) return;
+                  messenger.showSnackBar(
                     SnackBar(
                       content: Text(
                         note.isEmpty ? 'Annotation saved' : 'Note saved: $note',
@@ -465,6 +492,16 @@ class _ReaderPageState extends State<ReaderPage> {
                   _pageLabel =
                       '${pageNumber ?? '–'} / ${total > 0 ? total : '–'}';
                 });
+                if (pageNumber != null && total > 0) {
+                  final span = (session.toPage - session.fromPage + 1)
+                      .clamp(1, total);
+                  final relative =
+                      ((pageNumber - session.fromPage + 1) / span)
+                          .clamp(0.0, 1.0);
+                  context
+                      .read<SessionsCubit>()
+                      .updateProgress(session.id, relative);
+                }
               },
             ),
           ),

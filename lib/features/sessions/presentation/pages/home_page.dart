@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -11,23 +14,60 @@ import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.d
 import 'package:nexus_chat/features/sessions/presentation/widgets/import_pdf_sheet.dart';
 import 'package:nexus_chat/features/sessions/presentation/widgets/session_card.dart';
 
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
-  Future<void> _openImport(BuildContext context) async {
-    await showImportPdfSheet(
-      context,
-      onSelectFromDevice: () => _pickPdf(context),
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  var _searchOpen = false;
+  var _query = '';
+  var _offline = false;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  final _searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _initConnectivity();
+  }
+
+  Future<void> _initConnectivity() async {
+    final results = await Connectivity().checkConnectivity();
+    _applyConnectivity(results);
+    _connectivitySub = Connectivity().onConnectivityChanged.listen(
+      _applyConnectivity,
     );
   }
 
-  Future<void> _pickPdf(BuildContext context) async {
+  void _applyConnectivity(List<ConnectivityResult> results) {
+    final offline = results.isEmpty ||
+        results.every((r) => r == ConnectivityResult.none);
+    if (!mounted) return;
+    setState(() => _offline = offline);
+  }
+
+  @override
+  void dispose() {
+    _connectivitySub?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _openImport() async {
+    await showImportPdfSheet(
+      context,
+      onSelectFromDevice: _pickPdf,
+    );
+  }
+
+  Future<void> _pickPdf() async {
     try {
       final picked = await PdfImportService().pickAndStore();
-      if (picked == null || !context.mounted) return;
+      if (picked == null || !mounted) return;
 
-      // Heuristic: large papers often have TOC → show chapter picker with
-      // realistic sample chapters; otherwise go to empty/manual.
       final showToc = picked.bytes.length > 200 * 1024;
       if (showToc) {
         final selected = await context.push<List<DetectedChapter>>(
@@ -66,31 +106,24 @@ class HomePage extends StatelessWidget {
             ],
           },
         );
-        if (!context.mounted) return;
+        if (!mounted) return;
         if (selected == null || selected.isEmpty) return;
 
-        for (final chapter in selected) {
-          context.read<SessionsCubit>().add(
-                ReadingSession(
-                  id: '${DateTime.now().microsecondsSinceEpoch}_${chapter.fromPage}',
-                  title: chapter.title,
-                  pdfName: picked.originalName,
-                  fromPage: chapter.fromPage,
-                  toPage: chapter.toPage,
-                  updatedAt: DateTime.now(),
-                  localPath: picked.localPath,
-                ),
-              );
-        }
-        final first = selected.first;
-        final sessions = context.read<SessionsCubit>().state;
-        final created = sessions.firstWhere(
-          (s) =>
-              s.localPath == picked.localPath &&
-              s.fromPage == first.fromPage &&
-              s.title == first.title,
-        );
-        context.go('/reader/${created.id}');
+        final sessions = <ReadingSession>[
+          for (final chapter in selected)
+            ReadingSession(
+              id: '${DateTime.now().microsecondsSinceEpoch}_${chapter.fromPage}',
+              title: chapter.title,
+              pdfName: picked.originalName,
+              fromPage: chapter.fromPage,
+              toPage: chapter.toPage,
+              updatedAt: DateTime.now(),
+              localPath: picked.localPath,
+            ),
+        ];
+        await context.read<SessionsCubit>().addAll(sessions);
+        if (!mounted) return;
+        context.go('/reader/${sessions.first.id}');
       } else {
         await context.push(
           '/chapters-empty',
@@ -101,17 +134,14 @@ class HomePage extends StatelessWidget {
         );
       }
     } catch (e) {
-      if (!context.mounted) return;
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not import PDF: $e')),
       );
     }
   }
 
-  Future<void> _renameSession(
-    BuildContext context,
-    ReadingSession session,
-  ) async {
+  Future<void> _renameSession(ReadingSession session) async {
     final controller = TextEditingController(text: session.title);
     final result = await showDialog<String>(
       context: context,
@@ -147,9 +177,21 @@ class HomePage extends StatelessWidget {
         );
       },
     );
-    if (result != null && result.trim().isNotEmpty && context.mounted) {
-      context.read<SessionsCubit>().rename(session.id, result);
+    if (result != null && result.trim().isNotEmpty && mounted) {
+      await context.read<SessionsCubit>().rename(session.id, result);
     }
+  }
+
+  List<ReadingSession> _filter(List<ReadingSession> sessions) {
+    final q = _query.trim().toLowerCase();
+    if (q.isEmpty) return sessions;
+    return sessions
+        .where(
+          (s) =>
+              s.title.toLowerCase().contains(q) ||
+              s.pdfName.toLowerCase().contains(q),
+        )
+        .toList();
   }
 
   @override
@@ -160,50 +202,150 @@ class HomePage extends StatelessWidget {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              child: Row(
-                children: [
-                  Text(
-                    AppConstants.appTitle,
-                    style: GoogleFonts.inter(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      color: FolioColors.textPrimary,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: _searchOpen
+                  ? Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _searchController,
+                            autofocus: true,
+                            onChanged: (v) => setState(() => _query = v),
+                            style: GoogleFonts.inter(
+                              color: FolioColors.textPrimary,
+                            ),
+                            decoration: InputDecoration(
+                              hintText: 'Search sessions...',
+                              prefixIcon: const Icon(Icons.search, size: 20),
+                              suffixIcon: IconButton(
+                                icon: const Icon(Icons.close, size: 20),
+                                onPressed: () {
+                                  setState(() {
+                                    _searchOpen = false;
+                                    _query = '';
+                                    _searchController.clear();
+                                  });
+                                },
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        const SizedBox(width: 8),
+                        Text(
+                          AppConstants.appTitle,
+                          style: GoogleFonts.inter(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                            color: FolioColors.textPrimary,
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          onPressed: () => setState(() => _searchOpen = true),
+                          icon: const Icon(Icons.search, size: 22),
+                          color: FolioColors.textPrimary,
+                        ),
+                        IconButton(
+                          onPressed: () => context.push('/settings'),
+                          icon: const Icon(Icons.settings_outlined, size: 22),
+                          color: FolioColors.textPrimary,
+                        ),
+                      ],
                     ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    onPressed: () {},
-                    icon: const Icon(Icons.search, size: 22),
-                    color: FolioColors.textPrimary,
-                  ),
-                  IconButton(
-                    onPressed: () => context.push('/settings'),
-                    icon: const Icon(Icons.settings_outlined, size: 22),
-                    color: FolioColors.textPrimary,
-                  ),
-                ],
-              ),
             ),
             const Divider(height: 1, color: FolioColors.border),
+            if (_offline)
+              Material(
+                color: FolioColors.offlineBg,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "You're offline",
+                              style: GoogleFonts.inter(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: FolioColors.offlineText,
+                              ),
+                            ),
+                            Text(
+                              'Summaries and chat need a connection. Saved PDFs still open.',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                color: FolioColors.offlineText
+                                    .withValues(alpha: 0.85),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () async {
+                          final results =
+                              await Connectivity().checkConnectivity();
+                          _applyConnectivity(results);
+                        },
+                        style: TextButton.styleFrom(
+                          backgroundColor: FolioColors.accent,
+                          foregroundColor: FolioColors.onAccent,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                        ),
+                        child: Text(
+                          'Retry',
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             Expanded(
               child: BlocBuilder<SessionsCubit, List<ReadingSession>>(
                 builder: (context, sessions) {
+                  final visible = _filter(sessions);
                   if (sessions.isEmpty) {
-                    return _EmptyState(onImport: () => _openImport(context));
+                    return _EmptyState(onImport: _openImport);
+                  }
+                  if (visible.isEmpty) {
+                    return Center(
+                      child: Text(
+                        'No sessions match “$_query”',
+                        style: GoogleFonts.inter(
+                          color: FolioColors.textSecondary,
+                        ),
+                      ),
+                    );
                   }
                   return ListView.separated(
                     padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
-                    itemCount: sessions.length,
+                    itemCount: visible.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
-                      final session = sessions[index];
+                      final session = visible[index];
                       return SessionCard(
                         session: session,
                         onTap: () => context.push('/reader/${session.id}'),
                         onMenuSelected: (action) {
                           if (action == 'rename') {
-                            _renameSession(context, session);
+                            _renameSession(session);
                           } else if (action == 'delete') {
                             context.read<SessionsCubit>().delete(session.id);
                           }
@@ -221,7 +363,7 @@ class HomePage extends StatelessWidget {
         builder: (context, sessions) {
           if (sessions.isEmpty) return const SizedBox.shrink();
           return FloatingActionButton(
-            onPressed: () => _openImport(context),
+            onPressed: _openImport,
             backgroundColor: FolioColors.accent,
             child: const Icon(Icons.add, color: FolioColors.onAccent),
           );

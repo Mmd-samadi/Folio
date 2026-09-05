@@ -1,28 +1,74 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:nexus_chat/core/storage/local_store.dart';
 import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
 
 class SessionsCubit extends Cubit<List<ReadingSession>> {
-  SessionsCubit({List<ReadingSession>? seed})
-      : super(seed ?? List<ReadingSession>.from(_demoSessions));
+  SessionsCubit({
+    required LocalStore store,
+    List<ReadingSession>? seed,
+  }) : super(seed ?? const []) {
+    _store = store;
+  }
 
-  void rename(String id, String title) {
+  late final LocalStore _store;
+
+  Future<void> hydrate() async {
+    final saved = _store.loadSessions();
+    if (saved.isNotEmpty) {
+      emit(saved);
+      return;
+    }
+
+    if (!_store.demoSeeded) {
+      emit(List<ReadingSession>.from(_demoSessions));
+      await _persist();
+      await _store.markDemoSeeded();
+    } else {
+      emit(const []);
+    }
+  }
+
+  Future<void> rename(String id, String title) async {
     emit([
       for (final s in state)
         if (s.id == id) s.copyWith(title: title.trim()) else s,
     ]);
+    await _persist();
   }
 
-  void delete(String id) {
+  Future<void> delete(String id) async {
     emit(state.where((s) => s.id != id).toList());
+    await _persist();
   }
 
-  void add(ReadingSession session) {
+  Future<void> add(ReadingSession session) async {
     emit([session, ...state]);
+    await _persist();
   }
 
-  void clearAll() => emit(const []);
+  Future<void> addAll(List<ReadingSession> sessions) async {
+    if (sessions.isEmpty) return;
+    emit([...sessions, ...state]);
+    await _persist();
+  }
 
-  void loadDemo() => emit(List<ReadingSession>.from(_demoSessions));
+  Future<void> updateProgress(String id, double progress) async {
+    emit([
+      for (final s in state)
+        if (s.id == id)
+          s.copyWith(progress: progress.clamp(0.0, 1.0), updatedAt: DateTime.now())
+        else
+          s,
+    ]);
+    await _persist();
+  }
+
+  Future<void> clearAll() async {
+    emit(const []);
+    await _persist();
+  }
+
+  Future<void> _persist() => _store.saveSessions(state);
 }
 
 final _demoSessions = [

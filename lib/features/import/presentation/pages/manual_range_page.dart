@@ -26,6 +26,7 @@ class _ManualRangePageState extends State<ManualRangePage> {
   late final TextEditingController _fromController;
   late final TextEditingController _toController;
   late final TextEditingController _titleController;
+  final _ranges = <PageRangeDraft>[];
 
   @override
   void initState() {
@@ -47,31 +48,69 @@ class _ManualRangePageState extends State<ManualRangePage> {
   int get _to => int.tryParse(_toController.text) ?? 0;
   int get _total => (_to >= _from && _from > 0) ? (_to - _from + 1) : 0;
 
-  void _createSession() {
+  bool _addCurrentRange({required bool requireValid}) {
     if (_total <= 0) {
+      if (requireValid) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Enter a valid page range.')),
+        );
+      }
+      return false;
+    }
+
+    setState(() {
+      _ranges.add(
+        PageRangeDraft(
+          fromPage: _from,
+          toPage: _to,
+          title: _titleController.text.trim(),
+        ),
+      );
+      _fromController.text = '${_to + 1}';
+      _toController.text = '${_to + 20}';
+      _titleController.clear();
+    });
+    return true;
+  }
+
+  Future<void> _createSessions() async {
+    final drafts = [..._ranges];
+    if (_total > 0) {
+      drafts.add(
+        PageRangeDraft(
+          fromPage: _from,
+          toPage: _to,
+          title: _titleController.text.trim(),
+        ),
+      );
+    }
+
+    if (drafts.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a valid page range.')),
+        const SnackBar(content: Text('Add at least one valid page range.')),
       );
       return;
     }
 
-    final title = _titleController.text.trim().isEmpty
-        ? 'Pages $_from–$_to'
-        : _titleController.text.trim();
+    final sessions = [
+      for (final draft in drafts)
+        ReadingSession(
+          id: '${DateTime.now().microsecondsSinceEpoch}_${draft.fromPage}',
+          title: draft.title.isEmpty
+              ? 'Pages ${draft.fromPage}–${draft.toPage}'
+              : draft.title,
+          pdfName: widget.pdfName,
+          fromPage: draft.fromPage,
+          toPage: draft.toPage,
+          updatedAt: DateTime.now(),
+          progress: 0,
+          localPath: widget.localPath,
+        ),
+    ];
 
-    final session = ReadingSession(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      title: title,
-      pdfName: widget.pdfName,
-      fromPage: _from,
-      toPage: _to,
-      updatedAt: DateTime.now(),
-      progress: 0,
-      localPath: widget.localPath,
-    );
-
-    context.read<SessionsCubit>().add(session);
-    context.go('/reader/${session.id}');
+    await context.read<SessionsCubit>().addAll(sessions);
+    if (!mounted) return;
+    context.go('/reader/${sessions.first.id}');
   }
 
   @override
@@ -106,6 +145,40 @@ class _ManualRangePageState extends State<ManualRangePage> {
                       color: FolioColors.textPrimary,
                     ),
                   ),
+                  if (_ranges.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    for (var i = 0; i < _ranges.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: FolioColors.surface,
+                          borderRadius:
+                              BorderRadius.circular(FolioColors.radiusCard),
+                          border: Border.all(color: FolioColors.border),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${_ranges[i].title.isEmpty ? 'Range ${i + 1}' : _ranges[i].title} · pp. ${_ranges[i].fromPage}–${_ranges[i].toPage}',
+                                style: GoogleFonts.inter(fontSize: 13),
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: () =>
+                                  setState(() => _ranges.removeAt(i)),
+                              icon: const Icon(Icons.close, size: 18),
+                              color: FolioColors.textSecondary,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
                   const SizedBox(height: 20),
                   Container(
                     padding: const EdgeInsets.all(16),
@@ -180,20 +253,16 @@ class _ManualRangePageState extends State<ManualRangePage> {
               child: Column(
                 children: [
                   FolioPrimaryButton(
-                    label: 'Create Session',
-                    onPressed: _createSession,
+                    label: _ranges.isEmpty
+                        ? 'Create Session'
+                        : 'Create ${_ranges.length + (_total > 0 ? 1 : 0)} Sessions',
+                    onPressed: _createSessions,
                   ),
                   const SizedBox(height: 16),
                   const Divider(color: FolioColors.border),
                   const SizedBox(height: 12),
                   TextButton(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Multi-range coming in next phase.'),
-                        ),
-                      );
-                    },
+                    onPressed: () => _addCurrentRange(requireValid: true),
                     child: Text(
                       '+ Add another range',
                       style: GoogleFonts.inter(

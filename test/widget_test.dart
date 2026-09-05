@@ -2,17 +2,33 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nexus_chat/core/router/app_router.dart';
+import 'package:nexus_chat/core/storage/local_store.dart';
 import 'package:nexus_chat/core/theme/app_theme.dart';
 import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.dart';
+import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   testWidgets('Splash shows Folio branding', (tester) async {
-    final sessions = SessionsCubit(seed: const []);
+    SharedPreferences.setMockInitialValues({
+      'folio_demo_seeded_v1': true,
+      'folio_sessions_v1': '[]',
+    });
+    final store = await LocalStore.open();
+    final sessions = SessionsCubit(store: store, seed: const []);
+    final settings = SettingsCubit(store: store);
     addTearDown(sessions.close);
+    addTearDown(settings.close);
 
     await tester.pumpWidget(
-      BlocProvider.value(
-        value: sessions,
+      MultiBlocProvider(
+        providers: [
+          BlocProvider.value(value: sessions),
+          BlocProvider.value(value: settings),
+          RepositoryProvider.value(value: store),
+        ],
         child: MaterialApp.router(
           theme: AppTheme.darkTheme,
           routerConfig: createAppRouter(),

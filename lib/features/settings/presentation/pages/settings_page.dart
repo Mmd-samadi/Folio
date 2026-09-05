@@ -1,29 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:nexus_chat/core/constants/app_constants.dart';
 import 'package:nexus_chat/core/theme/folio_colors.dart';
+import 'package:nexus_chat/features/settings/domain/folio_settings.dart';
+import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.dart';
 
-class SettingsPage extends StatefulWidget {
+class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
 
-  @override
-  State<SettingsPage> createState() => _SettingsPageState();
-}
-
-class _SettingsPageState extends State<SettingsPage> {
-  String _format = 'Bullet';
-  String _length = 'Medium';
-  String _chatScope = 'Section';
-  final _apiKeyController = TextEditingController(text: '••••••••••');
-
-  @override
-  void dispose() {
-    _apiKeyController.dispose();
-    super.dispose();
-  }
-
   Future<void> _pickOption({
+    required BuildContext context,
     required String title,
     required List<String> options,
     required String current,
@@ -73,6 +61,48 @@ class _SettingsPageState extends State<SettingsPage> {
     if (result != null) onPicked(result);
   }
 
+  Future<void> _editApiKey(BuildContext context) async {
+    final controller = TextEditingController();
+    final key = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: FolioColors.surface,
+        title: Text(
+          'API Key',
+          style: GoogleFonts.inter(color: FolioColors.textPrimary),
+        ),
+        content: TextField(
+          controller: controller,
+          obscureText: true,
+          decoration: const InputDecoration(
+            hintText: 'Paste Gemini API key',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: Text(
+              'Save',
+              style: GoogleFonts.inter(color: FolioColors.accent),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (key != null && key.isNotEmpty && context.mounted) {
+      await context.read<SettingsCubit>().setApiKey(key);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('API key saved.')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -84,98 +114,65 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         title: const Text('Settings'),
       ),
-      body: ListView(
-        children: [
-          _SettingRow(
-            label: 'Default format',
-            value: _format,
-            onTap: () => _pickOption(
-              title: 'Default format',
-              options: const ['Bullet', 'Paragraph', 'Q&A'],
-              current: _format,
-              onPicked: (v) => setState(() => _format = v),
-            ),
-          ),
-          _SettingRow(
-            label: 'Default length',
-            value: _length,
-            onTap: () => _pickOption(
-              title: 'Default length',
-              options: const ['Short', 'Medium', 'Long'],
-              current: _length,
-              onPicked: (v) => setState(() => _length = v),
-            ),
-          ),
-          _SettingRow(
-            label: 'Default chat scope',
-            value: _chatScope,
-            onTap: () => _pickOption(
-              title: 'Default chat scope',
-              options: const ['Section', 'Full PDF'],
-              current: _chatScope,
-              onPicked: (v) => setState(() => _chatScope = v),
-            ),
-          ),
-          const _SettingRow(
-            label: 'Theme',
-            value: 'Dark',
-          ),
-          _SettingRow(
-            label: 'API Key',
-            value: '••••••••••',
-            trailing: const Icon(
-              Icons.edit_outlined,
-              size: 16,
-              color: FolioColors.textSecondary,
-            ),
-            onTap: () async {
-              final controller = TextEditingController();
-              final key = await showDialog<String>(
-                context: context,
-                builder: (context) => AlertDialog(
-                  backgroundColor: FolioColors.surface,
-                  title: Text(
-                    'API Key',
-                    style: GoogleFonts.inter(color: FolioColors.textPrimary),
-                  ),
-                  content: TextField(
-                    controller: controller,
-                    obscureText: true,
-                    decoration: const InputDecoration(
-                      hintText: 'Paste Gemini API key',
-                    ),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Cancel'),
-                    ),
-                    TextButton(
-                      onPressed: () =>
-                          Navigator.pop(context, controller.text.trim()),
-                      child: Text(
-                        'Save',
-                        style: GoogleFonts.inter(color: FolioColors.accent),
-                      ),
-                    ),
-                  ],
+      body: BlocBuilder<SettingsCubit, FolioSettings>(
+        builder: (context, settings) {
+          return ListView(
+            children: [
+              _SettingRow(
+                label: 'Default format',
+                value: settings.format,
+                onTap: () => _pickOption(
+                  context: context,
+                  title: 'Default format',
+                  options: const ['Bullet', 'Paragraph', 'Q&A'],
+                  current: settings.format,
+                  onPicked: (v) => context.read<SettingsCubit>().setFormat(v),
                 ),
-              );
-              if (key != null && key.isNotEmpty && context.mounted) {
-                setState(() => _apiKeyController.text = key);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('API key saved for this session.'),
-                  ),
-                );
-              }
-            },
-          ),
-          const _SettingRow(
-            label: 'About',
-            value: AppConstants.appVersion,
-          ),
-        ],
+              ),
+              _SettingRow(
+                label: 'Default length',
+                value: settings.length,
+                onTap: () => _pickOption(
+                  context: context,
+                  title: 'Default length',
+                  options: const ['Short', 'Medium', 'Long'],
+                  current: settings.length,
+                  onPicked: (v) => context.read<SettingsCubit>().setLength(v),
+                ),
+              ),
+              _SettingRow(
+                label: 'Default chat scope',
+                value: settings.chatScope,
+                onTap: () => _pickOption(
+                  context: context,
+                  title: 'Default chat scope',
+                  options: const ['Section', 'Full PDF'],
+                  current: settings.chatScope,
+                  onPicked: (v) =>
+                      context.read<SettingsCubit>().setChatScope(v),
+                ),
+              ),
+              const _SettingRow(
+                label: 'Theme',
+                value: 'Dark',
+              ),
+              _SettingRow(
+                label: 'API Key',
+                value: settings.maskedApiKey,
+                trailing: const Icon(
+                  Icons.edit_outlined,
+                  size: 16,
+                  color: FolioColors.textSecondary,
+                ),
+                onTap: () => _editApiKey(context),
+              ),
+              const _SettingRow(
+                label: 'About',
+                value: AppConstants.appVersion,
+              ),
+            ],
+          );
+        },
       ),
     );
   }
