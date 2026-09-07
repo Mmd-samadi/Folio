@@ -8,11 +8,13 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:nexus_chat/core/constants/app_constants.dart';
 import 'package:nexus_chat/core/theme/folio_colors.dart';
 import 'package:nexus_chat/core/widgets/folio_buttons.dart';
+import 'package:nexus_chat/features/books/domain/book.dart';
+import 'package:nexus_chat/features/books/presentation/cubit/books_cubit.dart';
+import 'package:nexus_chat/features/books/presentation/widgets/book_card.dart';
 import 'package:nexus_chat/features/import/data/pdf_import_service.dart';
 import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
 import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.dart';
 import 'package:nexus_chat/features/sessions/presentation/widgets/import_pdf_sheet.dart';
-import 'package:nexus_chat/features/sessions/presentation/widgets/session_card.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -68,71 +70,15 @@ class _HomePageState extends State<HomePage> {
       final picked = await PdfImportService().pickAndStore();
       if (picked == null || !mounted) return;
 
-      final showToc = picked.bytes.length > 200 * 1024;
-      if (showToc) {
-        final selected = await context.push<List<DetectedChapter>>(
-          '/chapters-found',
-          extra: {
-            'pdfName': picked.originalName,
-            'localPath': picked.localPath,
-            'chapters': [
-              const DetectedChapter(
-                title: 'Introduction & Motivation',
-                fromPage: 1,
-                toPage: 11,
-              ),
-              const DetectedChapter(
-                title: 'The Transformer Model',
-                fromPage: 12,
-                toPage: 25,
-              ),
-              const DetectedChapter(
-                title: 'Attention Mechanisms',
-                fromPage: 26,
-                toPage: 34,
-              ),
-              const DetectedChapter(
-                title: 'Training and Dataset Details',
-                fromPage: 35,
-                toPage: 40,
-                selected: false,
-              ),
-              const DetectedChapter(
-                title: 'Experimental Evaluation',
-                fromPage: 41,
-                toPage: 45,
-                selected: false,
-              ),
-            ],
-          },
-        );
-        if (!mounted) return;
-        if (selected == null || selected.isEmpty) return;
-
-        final sessions = <ReadingSession>[
-          for (final chapter in selected)
-            ReadingSession(
-              id: '${DateTime.now().microsecondsSinceEpoch}_${chapter.fromPage}',
-              title: chapter.title,
-              pdfName: picked.originalName,
-              fromPage: chapter.fromPage,
-              toPage: chapter.toPage,
-              updatedAt: DateTime.now(),
-              localPath: picked.localPath,
-            ),
-        ];
-        await context.read<SessionsCubit>().addAll(sessions);
-        if (!mounted) return;
-        context.go('/reader/${sessions.first.id}');
-      } else {
-        await context.push(
-          '/chapters-empty',
-          extra: {
-            'pdfName': picked.originalName,
-            'localPath': picked.localPath,
-          },
-        );
-      }
+      await context.push(
+        '/detect-topics',
+        extra: {
+          'bookId': picked.bookId,
+          'pdfName': picked.originalName,
+          'localPath': picked.localPath,
+          'coverPath': picked.coverPath,
+        },
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -141,22 +87,22 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _renameSession(ReadingSession session) async {
-    final controller = TextEditingController(text: session.title);
+  Future<void> _renameBook(Book book) async {
+    final controller = TextEditingController(text: book.title);
     final result = await showDialog<String>(
       context: context,
       builder: (context) {
         return AlertDialog(
           backgroundColor: FolioColors.surface,
           title: Text(
-            'Rename session',
+            'Rename book',
             style: GoogleFonts.inter(color: FolioColors.textPrimary),
           ),
           content: TextField(
             controller: controller,
             autofocus: true,
             style: GoogleFonts.inter(color: FolioColors.textPrimary),
-            decoration: const InputDecoration(hintText: 'Session title'),
+            decoration: const InputDecoration(hintText: 'Book title'),
           ),
           actions: [
             TextButton(
@@ -178,18 +124,58 @@ class _HomePageState extends State<HomePage> {
       },
     );
     if (result != null && result.trim().isNotEmpty && mounted) {
-      await context.read<SessionsCubit>().rename(session.id, result);
+      await context.read<BooksCubit>().rename(book.id, result);
     }
   }
 
-  List<ReadingSession> _filter(List<ReadingSession> sessions) {
+  Future<void> _confirmDeleteBook(Book book) async {
+    final parts = context.read<BooksCubit>().partsFor(book.id);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: FolioColors.surface,
+          title: Text(
+            'Delete book?',
+            style: GoogleFonts.inter(color: FolioColors.textPrimary),
+          ),
+          content: Text(
+            '“${book.title}” and its ${parts.length} section'
+            '${parts.length == 1 ? '' : 's'} will be removed.',
+            style: GoogleFonts.inter(color: FolioColors.textSecondary),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(
+                'Cancel',
+                style: GoogleFonts.inter(color: FolioColors.textSecondary),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(
+                'Delete',
+                style: GoogleFonts.inter(color: FolioColors.danger),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    if (ok == true && mounted) {
+      await context.read<BooksCubit>().deleteBook(book.id);
+    }
+  }
+
+  List<Book> _filter(List<Book> books) {
     final q = _query.trim().toLowerCase();
-    if (q.isEmpty) return sessions;
-    return sessions
+    if (q.isEmpty) return books;
+    return books
         .where(
-          (s) =>
-              s.title.toLowerCase().contains(q) ||
-              s.pdfName.toLowerCase().contains(q),
+          (b) =>
+              b.title.toLowerCase().contains(q) ||
+              b.pdfName.toLowerCase().contains(q),
         )
         .toList();
   }
@@ -215,7 +201,7 @@ class _HomePageState extends State<HomePage> {
                               color: FolioColors.textPrimary,
                             ),
                             decoration: InputDecoration(
-                              hintText: 'Search sessions...',
+                              hintText: 'Search books...',
                               prefixIcon: const Icon(Icons.search, size: 20),
                               suffixIcon: IconButton(
                                 icon: const Icon(Icons.close, size: 20),
@@ -318,37 +304,45 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             Expanded(
-              child: BlocBuilder<SessionsCubit, List<ReadingSession>>(
-                builder: (context, sessions) {
-                  final visible = _filter(sessions);
-                  if (sessions.isEmpty) {
-                    return _EmptyState(onImport: _openImport);
-                  }
-                  if (visible.isEmpty) {
-                    return Center(
-                      child: Text(
-                        'No sessions match “$_query”',
-                        style: GoogleFonts.inter(
-                          color: FolioColors.textSecondary,
-                        ),
-                      ),
-                    );
-                  }
-                  return ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
-                    itemCount: visible.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 12),
-                    itemBuilder: (context, index) {
-                      final session = visible[index];
-                      return SessionCard(
-                        session: session,
-                        onTap: () => context.push('/reader/${session.id}'),
-                        onMenuSelected: (action) {
-                          if (action == 'rename') {
-                            _renameSession(session);
-                          } else if (action == 'delete') {
-                            context.read<SessionsCubit>().delete(session.id);
-                          }
+              child: BlocBuilder<BooksCubit, List<Book>>(
+                builder: (context, books) {
+                  return BlocBuilder<SessionsCubit, List<ReadingSession>>(
+                    builder: (context, _) {
+                      final visible = _filter(books);
+                      if (books.isEmpty) {
+                        return _EmptyState(onImport: _openImport);
+                      }
+                      if (visible.isEmpty) {
+                        return Center(
+                          child: Text(
+                            'No books match “$_query”',
+                            style: GoogleFonts.inter(
+                              color: FolioColors.textSecondary,
+                            ),
+                          ),
+                        );
+                      }
+                      final cubit = context.read<BooksCubit>();
+                      return ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
+                        itemCount: visible.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          final book = visible[index];
+                          final parts = cubit.partsFor(book.id);
+                          return BookCard(
+                            book: book,
+                            sectionCount: parts.length,
+                            progress: cubit.overallProgress(book.id),
+                            onTap: () => context.push('/book/${book.id}'),
+                            onMenuSelected: (action) {
+                              if (action == 'rename') {
+                                _renameBook(book);
+                              } else if (action == 'delete') {
+                                _confirmDeleteBook(book);
+                              }
+                            },
+                          );
                         },
                       );
                     },
@@ -359,9 +353,9 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
       ),
-      floatingActionButton: BlocBuilder<SessionsCubit, List<ReadingSession>>(
-        builder: (context, sessions) {
-          if (sessions.isEmpty) return const SizedBox.shrink();
+      floatingActionButton: BlocBuilder<BooksCubit, List<Book>>(
+        builder: (context, books) {
+          if (books.isEmpty) return const SizedBox.shrink();
           return FloatingActionButton(
             onPressed: _openImport,
             backgroundColor: FolioColors.accent,
@@ -401,7 +395,7 @@ class _EmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            'No sessions yet',
+            'No books yet',
             style: GoogleFonts.inter(
               fontSize: 18,
               fontWeight: FontWeight.w600,
@@ -410,7 +404,7 @@ class _EmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Import a PDF to start reading smarter with AI summaries and focused sessions.',
+            'Import a PDF to create a book. Topics become sections inside that book.',
             textAlign: TextAlign.center,
             style: GoogleFonts.inter(
               fontSize: 14,

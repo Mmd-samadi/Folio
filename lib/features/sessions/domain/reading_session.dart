@@ -1,3 +1,4 @@
+/// A Folio part (section/session) belonging to a [Book].
 class ReadingSession {
   const ReadingSession({
     required this.id,
@@ -8,6 +9,9 @@ class ReadingSession {
     required this.updatedAt,
     this.progress = 0,
     this.localPath,
+    this.bookId,
+    this.summaryBullets = const [],
+    this.summaryUpdatedAt,
   });
 
   final String id;
@@ -17,10 +21,19 @@ class ReadingSession {
   final int toPage;
   final DateTime updatedAt;
   final double progress;
-  /// Absolute path inside app documents. Null for demo sessions.
+  /// Absolute path inside app documents for the imported PDF.
   final String? localPath;
+  /// Parent [Book] id. Null only for legacy data pending migration.
+  final String? bookId;
+  /// Persisted AI summary bullets for this section.
+  final List<String> summaryBullets;
+  final DateTime? summaryUpdatedAt;
 
   bool get hasLocalPdf => localPath != null && localPath!.isNotEmpty;
+
+  bool get hasBook => bookId != null && bookId!.isNotEmpty;
+
+  bool get hasSummary => summaryBullets.isNotEmpty;
 
   String get pageRangeLabel => 'pp. $fromPage–$toPage';
 
@@ -53,6 +66,10 @@ class ReadingSession {
     DateTime? updatedAt,
     double? progress,
     String? localPath,
+    String? bookId,
+    List<String>? summaryBullets,
+    DateTime? summaryUpdatedAt,
+    bool clearSummary = false,
   }) {
     return ReadingSession(
       id: id ?? this.id,
@@ -63,6 +80,12 @@ class ReadingSession {
       updatedAt: updatedAt ?? this.updatedAt,
       progress: progress ?? this.progress,
       localPath: localPath ?? this.localPath,
+      bookId: bookId ?? this.bookId,
+      summaryBullets:
+          clearSummary ? const [] : (summaryBullets ?? this.summaryBullets),
+      summaryUpdatedAt: clearSummary
+          ? null
+          : (summaryUpdatedAt ?? this.summaryUpdatedAt),
     );
   }
 
@@ -75,9 +98,17 @@ class ReadingSession {
         'updatedAt': updatedAt.toIso8601String(),
         'progress': progress,
         'localPath': localPath,
+        'bookId': bookId,
+        'summaryBullets': summaryBullets,
+        'summaryUpdatedAt': summaryUpdatedAt?.toIso8601String(),
       };
 
   factory ReadingSession.fromJson(Map<String, dynamic> json) {
+    final bulletsRaw = json['summaryBullets'];
+    final bullets = bulletsRaw is List
+        ? bulletsRaw.whereType<String>().map((e) => e.trim()).where((e) => e.isNotEmpty).toList()
+        : const <String>[];
+
     return ReadingSession(
       id: json['id'] as String? ?? '',
       title: json['title'] as String? ?? 'Untitled',
@@ -88,6 +119,10 @@ class ReadingSession {
           DateTime.now(),
       progress: (json['progress'] as num?)?.toDouble() ?? 0,
       localPath: json['localPath'] as String?,
+      bookId: json['bookId'] as String?,
+      summaryBullets: bullets,
+      summaryUpdatedAt:
+          DateTime.tryParse(json['summaryUpdatedAt'] as String? ?? ''),
     );
   }
 }

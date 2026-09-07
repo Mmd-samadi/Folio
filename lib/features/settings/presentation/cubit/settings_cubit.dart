@@ -33,4 +33,10 @@ class SettingsCubit extends Cubit<FolioSettings> {
     emit(state.copyWith(customPrompt: prompt));
     await _store.saveSettings(state);
   }
+
+  Future<void> setSummaryTextDirection(String direction) async {
+    final normalized = direction.toLowerCase() == 'rtl' ? 'rtl' : 'ltr';
+    emit(state.copyWith(summaryTextDirection: normalized));
+    await _store.saveSettings(state);
+  }
 }

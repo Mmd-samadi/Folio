@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:nexus_chat/core/theme/folio_colors.dart';
 import 'package:nexus_chat/core/widgets/folio_buttons.dart';
+import 'package:nexus_chat/features/books/domain/book.dart';
+import 'package:nexus_chat/features/books/presentation/cubit/books_cubit.dart';
 import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
 
 /// Shown when TOC cannot be detected — redirects to manual range.
@@ -10,11 +13,15 @@ class ChapterEmptyPage extends StatelessWidget {
   const ChapterEmptyPage({
     super.key,
     required this.pdfName,
+    this.bookId,
     this.localPath,
+    this.coverPath,
   });
 
+  final String? bookId;
   final String pdfName;
   final String? localPath;
+  final String? coverPath;
 
   @override
   Widget build(BuildContext context) {
@@ -49,7 +56,7 @@ class ChapterEmptyPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    "We couldn't detect a table of contents automatically.",
+                    "We couldn't detect topics automatically for this window.",
                     style: GoogleFonts.inter(
                       fontSize: 14,
                       color: FolioColors.textSecondary,
@@ -81,7 +88,7 @@ class ChapterEmptyPage extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'No table of contents found',
+                            'Try another page window',
                             style: GoogleFonts.inter(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
@@ -90,7 +97,7 @@ class ChapterEmptyPage extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'Set page ranges manually to divide your reading.',
+                            'Detect headings across the book, or set ranges manually.',
                             style: GoogleFonts.inter(
                               fontSize: 12,
                               color: FolioColors.warningText.withValues(
@@ -108,14 +115,32 @@ class ChapterEmptyPage extends StatelessWidget {
             const Spacer(),
             Padding(
               padding: const EdgeInsets.all(20),
-              child: FolioPrimaryButton(
-                label: 'Set Ranges Manually',
-                onPressed: () {
-                  context.pushReplacement('/manual-range', extra: {
-                    'pdfName': pdfName,
-                    'localPath': localPath,
-                  });
-                },
+              child: Column(
+                children: [
+                  FolioPrimaryButton(
+                    label: 'Detect headings',
+                    onPressed: () {
+                      context.pushReplacement('/detect-topics', extra: {
+                        'bookId': bookId,
+                        'pdfName': pdfName,
+                        'localPath': localPath,
+                        'coverPath': coverPath,
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  FolioSecondaryButton(
+                    label: 'Set Ranges Manually',
+                    onPressed: () {
+                      context.pushReplacement('/manual-range', extra: {
+                        'bookId': bookId,
+                        'pdfName': pdfName,
+                        'localPath': localPath,
+                        'coverPath': coverPath,
+                      });
+                    },
+                  ),
+                ],
               ),
             ),
           ],
@@ -129,13 +154,23 @@ class ChapterFoundPage extends StatefulWidget {
   const ChapterFoundPage({
     super.key,
     required this.pdfName,
+    this.bookId,
     this.localPath,
+    this.coverPath,
     required this.chapters,
+    this.windowFrom,
+    this.windowTo,
+    this.notes,
   });
 
+  final String? bookId;
   final String pdfName;
   final String? localPath;
+  final String? coverPath;
   final List<DetectedChapter> chapters;
+  final int? windowFrom;
+  final int? windowTo;
+  final String? notes;
 
   @override
   State<ChapterFoundPage> createState() => _ChapterFoundPageState();
@@ -144,9 +179,53 @@ class ChapterFoundPage extends StatefulWidget {
 class _ChapterFoundPageState extends State<ChapterFoundPage> {
   late final List<DetectedChapter> _chapters = List.of(widget.chapters);
 
+  Future<void> _createSessions() async {
+    final selected = _chapters.where((c) => c.selected).toList();
+    if (selected.isEmpty) return;
+
+    final bookId = widget.bookId?.isNotEmpty == true
+        ? widget.bookId!
+        : DateTime.now().microsecondsSinceEpoch.toString();
+    final now = DateTime.now();
+    final book = Book(
+      id: bookId,
+      title: Book.titleFromPdfName(widget.pdfName),
+      pdfName: widget.pdfName,
+      sourcePdfPath: widget.localPath ?? '',
+      coverPath: widget.coverPath,
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    final sessions = [
+      for (final chapter in selected)
+        ReadingSession(
+          id: '${DateTime.now().microsecondsSinceEpoch}_${chapter.fromPage}',
+          title: chapter.title,
+          pdfName: widget.pdfName,
+          fromPage: chapter.fromPage,
+          toPage: chapter.toPage,
+          updatedAt: now,
+          progress: 0,
+          localPath: widget.localPath,
+          bookId: bookId,
+        ),
+    ];
+
+    await context.read<BooksCubit>().addBookWithParts(
+          book: book,
+          parts: sessions,
+        );
+    if (!mounted) return;
+    context.go('/book/$bookId');
+  }
+
   @override
   Widget build(BuildContext context) {
     final selected = _chapters.where((c) => c.selected).toList();
+    final windowLabel = widget.windowFrom != null && widget.windowTo != null
+        ? 'Topics detected for pages ${widget.windowFrom}–${widget.windowTo}.'
+        : 'Select topics to add as sections in this book.';
 
     return Scaffold(
       backgroundColor: FolioColors.background,
@@ -171,7 +250,7 @@ class _ChapterFoundPageState extends State<ChapterFoundPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Chapters detected',
+                    'Topics detected',
                     style: GoogleFonts.inter(
                       fontSize: 24,
                       fontWeight: FontWeight.w700,
@@ -179,12 +258,22 @@ class _ChapterFoundPageState extends State<ChapterFoundPage> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Select page ranges to auto-create reading sessions.',
+                    windowLabel,
                     style: GoogleFonts.inter(
                       fontSize: 14,
                       color: FolioColors.textSecondary,
                     ),
                   ),
+                  if (widget.notes != null && widget.notes!.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      widget.notes!,
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: FolioColors.textDim,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -231,12 +320,10 @@ class _ChapterFoundPageState extends State<ChapterFoundPage> {
             Padding(
               padding: const EdgeInsets.all(20),
               child: FolioPrimaryButton(
-                label: 'Create Sessions',
-                onPressed: selected.isEmpty
-                    ? null
-                    : () {
-                        context.pop(selected);
-                      },
+                label: selected.isEmpty
+                    ? 'Add to Book'
+                    : 'Add ${selected.length} section${selected.length == 1 ? '' : 's'}',
+                onPressed: selected.isEmpty ? null : _createSessions,
               ),
             ),
           ],

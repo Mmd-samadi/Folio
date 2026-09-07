@@ -5,18 +5,23 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:nexus_chat/core/theme/folio_colors.dart';
 import 'package:nexus_chat/core/widgets/folio_buttons.dart';
+import 'package:nexus_chat/features/books/domain/book.dart';
+import 'package:nexus_chat/features/books/presentation/cubit/books_cubit.dart';
 import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
-import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.dart';
 
 class ManualRangePage extends StatefulWidget {
   const ManualRangePage({
     super.key,
     required this.pdfName,
+    this.bookId,
     this.localPath,
+    this.coverPath,
   });
 
+  final String? bookId;
   final String pdfName;
   final String? localPath;
+  final String? coverPath;
 
   @override
   State<ManualRangePage> createState() => _ManualRangePageState();
@@ -31,8 +36,8 @@ class _ManualRangePageState extends State<ManualRangePage> {
   @override
   void initState() {
     super.initState();
-    _fromController = TextEditingController(text: '12');
-    _toController = TextEditingController(text: '45');
+    _fromController = TextEditingController(text: '1');
+    _toController = TextEditingController();
     _titleController = TextEditingController();
   }
 
@@ -67,7 +72,7 @@ class _ManualRangePageState extends State<ManualRangePage> {
         ),
       );
       _fromController.text = '${_to + 1}';
-      _toController.text = '${_to + 20}';
+      _toController.clear();
       _titleController.clear();
     });
     return true;
@@ -92,6 +97,20 @@ class _ManualRangePageState extends State<ManualRangePage> {
       return;
     }
 
+    final bookId = widget.bookId?.isNotEmpty == true
+        ? widget.bookId!
+        : DateTime.now().microsecondsSinceEpoch.toString();
+    final now = DateTime.now();
+    final book = Book(
+      id: bookId,
+      title: Book.titleFromPdfName(widget.pdfName),
+      pdfName: widget.pdfName,
+      sourcePdfPath: widget.localPath ?? '',
+      coverPath: widget.coverPath,
+      createdAt: now,
+      updatedAt: now,
+    );
+
     final sessions = [
       for (final draft in drafts)
         ReadingSession(
@@ -102,15 +121,19 @@ class _ManualRangePageState extends State<ManualRangePage> {
           pdfName: widget.pdfName,
           fromPage: draft.fromPage,
           toPage: draft.toPage,
-          updatedAt: DateTime.now(),
+          updatedAt: now,
           progress: 0,
           localPath: widget.localPath,
+          bookId: bookId,
         ),
     ];
 
-    await context.read<SessionsCubit>().addAll(sessions);
+    await context.read<BooksCubit>().addBookWithParts(
+          book: book,
+          parts: sessions,
+        );
     if (!mounted) return;
-    context.go('/reader/${sessions.first.id}');
+    context.go('/book/$bookId');
   }
 
   @override

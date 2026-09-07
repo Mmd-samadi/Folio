@@ -7,26 +7,37 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:nexus_chat/core/storage/local_store.dart';
 import 'package:nexus_chat/core/theme/folio_colors.dart';
+import 'package:nexus_chat/core/widgets/folio_buttons.dart';
+import 'package:nexus_chat/core/widgets/folio_feedback.dart';
 import 'package:nexus_chat/features/chat/data/api_exception.dart';
 import 'package:nexus_chat/features/chat/data/network_exception.dart';
 import 'package:nexus_chat/features/reader/data/folio_ai_service.dart';
+import 'package:nexus_chat/features/reader/data/section_summarizer.dart';
+import 'package:nexus_chat/features/reader/domain/section_page_range.dart';
 import 'package:nexus_chat/features/reader/presentation/widgets/reader_sheets.dart';
 import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
 import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.dart';
 import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.dart';
+import 'package:nexus_chat/features/settings/presentation/widgets/api_key_gate_sheet.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 class ReaderPage extends StatefulWidget {
-  const ReaderPage({super.key, required this.sessionId});
+  const ReaderPage({
+    super.key,
+    required this.sessionId,
+    this.initialTab = 'pdf',
+  });
 
   final String sessionId;
+  /// `pdf` or `summary`
+  final String initialTab;
 
   @override
   State<ReaderPage> createState() => _ReaderPageState();
 }
 
 class _ReaderPageState extends State<ReaderPage> {
-  var _tab = _ReaderTab.summary;
+  late _ReaderTab _tab;
   var _format = 'Bullet';
   var _length = 'Medium';
   var _chatExpanded = false;
@@ -36,24 +47,20 @@ class _ReaderPageState extends State<ReaderPage> {
   var _loadingChat = false;
   List<String> _bullets = const [];
   String? _summaryError;
+  String? _chatError;
+  String? _pendingChat;
   Uint8List? _pdfBytes;
   final _chatController = TextEditingController();
   final _messages = <_ChatLine>[];
   final _pdfController = PdfViewerController();
   var _pageLabel = '– / –';
 
-  static const _fallbackBullets = [
-    'The Transformer architecture entirely eschews recurrence and convolutions, relying solely on self-attention mechanisms.',
-    'Self-attention allows the model to capture dependencies between words regardless of their distance.',
-    'Multi-head attention lets the model jointly attend to information from different representation subspaces.',
-    'Positional encodings inject order information without recurrence.',
-    'Training time is reduced compared to recurrent sequence models of similar quality.',
-  ];
-
   @override
   void initState() {
     super.initState();
-    _bullets = List.of(_fallbackBullets);
+    _tab = widget.initialTab == 'summary'
+        ? _ReaderTab.summary
+        : _ReaderTab.pdf;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final settings = context.read<SettingsCubit>().state;
       setState(() {
@@ -87,26 +94,40 @@ class _ReaderPageState extends State<ReaderPage> {
     final session = _findSession();
     if (session == null) return;
 
+    if (session.hasSummary) {
+      setState(() {
+        _bullets = session.summaryBullets;
+        _summaryError = null;
+        _loadingSummary = false;
+      });
+    }
+
     if (session.hasLocalPdf) {
       try {
         final bytes = await File(session.localPath!).readAsBytes();
         if (!mounted) return;
         setState(() => _pdfBytes = bytes);
-        await _summarize(session);
+        // Do not auto-summarize on open — user triggers explicitly.
       } catch (_) {
         if (!mounted) return;
         setState(() {
-          _summaryError = 'Could not read the PDF file.';
+          if (!session.hasSummary) {
+            _summaryError = 'Could not read the PDF file.';
+            _bullets = const [];
+          }
         });
       }
     }
   }
 
   Future<void> _summarize(ReadingSession session) async {
-    if (_pdfBytes == null) {
+    final hasKey = await ensureFolioApiKey(context);
+    if (!mounted) return;
+    if (!hasKey) {
       setState(() {
-        _bullets = List.of(_fallbackBullets);
-        _summaryError = null;
+        _loadingSummary = false;
+        _summaryError =
+            'GEMINI_API_KEY is missing. Add it in Settings or your .env file.';
       });
       return;
     }
@@ -117,20 +138,20 @@ class _ReaderPageState extends State<ReaderPage> {
     });
 
     try {
-      final apiKey = context.read<SettingsCubit>().state.apiKey;
-      final ai = FolioAiService(apiKey: apiKey);
-      final bullets = await ai.summarizePdf(
-        pdfBytes: _pdfBytes!,
+      final settings = context.read<SettingsCubit>().state;
+      final bullets = await const SectionSummarizer().summarize(
+        session: session,
+        sessions: context.read<SessionsCubit>(),
+        apiKey: settings.apiKey,
         format: _format,
         length: _length,
         customPrompt: _prompt,
-        fromPage: session.fromPage,
-        toPage: session.toPage,
       );
       if (!mounted) return;
       setState(() {
         _bullets = bullets;
         _loadingSummary = false;
+        _summaryError = null;
       });
     } on NetworkException catch (e) {
       if (!mounted) return;
@@ -154,21 +175,46 @@ class _ReaderPageState extends State<ReaderPage> {
       if (!mounted) return;
       setState(() {
         _loadingSummary = false;
-        _summaryError = 'Summarization failed. Showing sample bullets.';
-        _bullets = List.of(_fallbackBullets);
+        _summaryError = 'Summarization failed. Please try again.';
       });
     }
   }
 
-  Future<void> _sendChat(ReadingSession session) async {
-    final text = _chatController.text.trim();
+  Future<void> _sendChat(
+    ReadingSession session, {
+    String? overrideText,
+  }) async {
+    final text = (overrideText ?? _chatController.text).trim();
     if (text.isEmpty || _loadingChat) return;
 
+    final hasKey = await ensureFolioApiKey(context);
+    if (!mounted) return;
+    if (!hasKey) {
+      setState(() {
+        _chatExpanded = true;
+        _chatError =
+            'GEMINI_API_KEY is missing. Add it in Settings or your .env file.';
+        _pendingChat = text;
+      });
+      return;
+    }
+
+    final alreadyShown = overrideText != null &&
+        _messages.isNotEmpty &&
+        _messages.last.isUser &&
+        _messages.last.text == text;
+
     setState(() {
-      _messages.add(_ChatLine(isUser: true, text: text));
-      _chatController.clear();
+      if (!alreadyShown) {
+        _messages.add(_ChatLine(isUser: true, text: text));
+      }
+      if (overrideText == null) {
+        _chatController.clear();
+      }
       _chatExpanded = true;
       _loadingChat = true;
+      _chatError = null;
+      _pendingChat = text;
     });
 
     try {
@@ -182,6 +228,7 @@ class _ReaderPageState extends State<ReaderPage> {
             ),
           );
           _loadingChat = false;
+          _pendingChat = null;
         });
         return;
       }
@@ -203,6 +250,8 @@ class _ReaderPageState extends State<ReaderPage> {
           ),
         );
         _loadingChat = false;
+        _chatError = null;
+        _pendingChat = null;
       });
     } catch (e) {
       if (!mounted) return;
@@ -210,10 +259,18 @@ class _ReaderPageState extends State<ReaderPage> {
           ? e.message
           : e is ApiException
               ? e.message
-              : 'Could not reach Folio AI.';
+              : e is StateError
+                  ? e.message
+                  : 'Could not reach Folio AI.';
       setState(() {
-        _messages.add(_ChatLine(isUser: false, text: msg));
+        if (_messages.isNotEmpty &&
+            _messages.last.isUser &&
+            _messages.last.text == text) {
+          _messages.removeLast();
+        }
         _loadingChat = false;
+        _chatError = msg;
+        _pendingChat = text;
       });
     }
   }
@@ -277,7 +334,14 @@ class _ReaderPageState extends State<ReaderPage> {
           children: [
             _AppBar(
               title: session.title,
-              onBack: () => context.go('/home'),
+              onBack: () {
+                final bookId = session.bookId;
+                if (bookId != null && bookId.isNotEmpty) {
+                  context.go('/book/$bookId');
+                } else {
+                  context.go('/home');
+                }
+              },
               onShare: () => showExportSheet(
                 context,
                 bullets: _bullets,
@@ -333,13 +397,18 @@ class _ReaderPageState extends State<ReaderPage> {
               _FormatBar(
                 format: _format,
                 length: _length,
+                isRtl: context.select<SettingsCubit, bool>(
+                  (c) => c.state.summaryIsRtl,
+                ),
                 onFormat: () => _pickDropdown(
                   title: 'Format',
                   options: const ['Bullet', 'Paragraph', 'Q&A'],
                   current: _format,
                   onPicked: (v) async {
                     setState(() => _format = v);
-                    await _summarize(session);
+                    if (_bullets.isNotEmpty || session.hasSummary) {
+                      await _summarize(session);
+                    }
                   },
                 ),
                 onLength: () => _pickDropdown(
@@ -348,9 +417,16 @@ class _ReaderPageState extends State<ReaderPage> {
                   current: _length,
                   onPicked: (v) async {
                     setState(() => _length = v);
-                    await _summarize(session);
+                    if (_bullets.isNotEmpty || session.hasSummary) {
+                      await _summarize(session);
+                    }
                   },
                 ),
+                onToggleDirection: () {
+                  final settings = context.read<SettingsCubit>();
+                  final next = settings.state.summaryIsRtl ? 'ltr' : 'rtl';
+                  settings.setSummaryTextDirection(next);
+                },
               ),
               Expanded(child: _buildSummaryBody(session)),
               _ChatPanel(
@@ -358,11 +434,15 @@ class _ReaderPageState extends State<ReaderPage> {
                 scope: _chatScope,
                 messages: _messages,
                 loading: _loadingChat,
+                errorMessage: _chatError,
                 controller: _chatController,
                 onToggleExpand: () =>
                     setState(() => _chatExpanded = !_chatExpanded),
                 onScopeChanged: (s) => setState(() => _chatScope = s),
                 onSend: () => _sendChat(session),
+                onRetry: _pendingChat == null
+                    ? null
+                    : () => _sendChat(session, overrideText: _pendingChat),
               ),
             ] else
               Expanded(child: _buildPdfTab(session)),
@@ -373,102 +453,158 @@ class _ReaderPageState extends State<ReaderPage> {
   }
 
   Widget _buildSummaryBody(ReadingSession session) {
+    final isRtl = context.select<SettingsCubit, bool>(
+      (c) => c.state.summaryIsRtl,
+    );
+    final direction = isRtl ? TextDirection.rtl : TextDirection.ltr;
+
     if (_loadingSummary) {
-      return const Center(
-        child: CircularProgressIndicator(color: FolioColors.accent),
+      return const FolioSummarySkeleton();
+    }
+
+    if (_summaryError != null && _bullets.isEmpty) {
+      return FolioSummaryErrorState(
+        message: _summaryError!,
+        onRegenerate: () => _summarize(session),
+        onOpenApiKey: () async {
+          final saved = await showApiKeyGateSheet(context, editing: true);
+          if (saved && mounted) await _summarize(session);
+        },
       );
     }
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-      children: [
-        if (_summaryError != null) ...[
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            margin: const EdgeInsets.only(bottom: 16),
-            decoration: BoxDecoration(
-              color: FolioColors.offlineBg,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: FolioColors.danger),
+    if (_bullets.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.auto_awesome_outlined,
+                size: 40,
+                color: FolioColors.accent,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'No summary yet',
+                style: GoogleFonts.inter(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: FolioColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Generate an AI summary for pages ${session.fromPage}–${session.toPage}.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  height: 1.5,
+                  color: FolioColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: 200,
+                child: FolioPrimaryButton(
+                  label: 'Summarize',
+                  onPressed: session.hasLocalPdf
+                      ? () => _summarize(session)
+                      : null,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Directionality(
+      textDirection: direction,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+        children: [
+          if (_summaryError != null) ...[
+            FolioInlineErrorBanner(
+              message: _summaryError!,
+              onRetry: () => _summarize(session),
+              retryLabel: 'Regenerate',
             ),
-            child: Text(
-              _summaryError!,
-              style: GoogleFonts.inter(
-                fontSize: 13,
-                color: FolioColors.offlineText,
+            const SizedBox(height: 16),
+          ],
+          if (!session.hasLocalPdf)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                'This session has no local PDF. Import a file to generate live summaries.',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  color: FolioColors.textSecondary,
+                ),
               ),
             ),
-          ),
-        ],
-        if (!session.hasLocalPdf)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Text(
-              'Demo session — sample summary. Import a PDF for live Gemini summaries.',
-              style: GoogleFonts.inter(
-                fontSize: 12,
-                color: FolioColors.textSecondary,
-              ),
-            ),
-          ),
-        for (var i = 0; i < _bullets.length; i++) ...[
-          if (i > 0) const SizedBox(height: 16),
-          InkWell(
-            onLongPress: () {
-              final store = context.read<LocalStore>();
-              final messenger = ScaffoldMessenger.of(context);
-              showAnnotationSheet(
-                context,
-                quote: _bullets[i],
-                onSave: (note) async {
-                  await store.addAnnotation(
-                    SessionAnnotation(
-                      sessionId: session.id,
-                      quote: _bullets[i],
-                      note: note,
-                      createdAt: DateTime.now(),
+          for (var i = 0; i < _bullets.length; i++) ...[
+            if (i > 0) const SizedBox(height: 16),
+            InkWell(
+              onLongPress: () {
+                final store = context.read<LocalStore>();
+                final messenger = ScaffoldMessenger.of(context);
+                showAnnotationSheet(
+                  context,
+                  quote: _bullets[i],
+                  onSave: (note) async {
+                    await store.addAnnotation(
+                      SessionAnnotation(
+                        sessionId: session.id,
+                        quote: _bullets[i],
+                        note: note,
+                        createdAt: DateTime.now(),
+                      ),
+                    );
+                    if (!mounted) return;
+                    messenger.showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          note.isEmpty
+                              ? 'Annotation saved'
+                              : 'Note saved: $note',
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 7),
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: FolioColors.accent,
+                      shape: BoxShape.circle,
                     ),
-                  );
-                  if (!mounted) return;
-                  messenger.showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        note.isEmpty ? 'Annotation saved' : 'Note saved: $note',
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _bullets[i],
+                      textAlign: isRtl ? TextAlign.right : TextAlign.left,
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        height: 1.6,
+                        color: FolioColors.textPrimary,
                       ),
                     ),
-                  );
-                },
-              );
-            },
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  margin: const EdgeInsets.only(top: 7),
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                    color: FolioColors.accent,
-                    shape: BoxShape.circle,
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    _bullets[i],
-                    style: GoogleFonts.inter(
-                      fontSize: 14,
-                      height: 1.6,
-                      color: FolioColors.textPrimary,
-                    ),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
+          ],
         ],
-      ],
+      ),
     );
   }
 
@@ -477,31 +613,42 @@ class _ReaderPageState extends State<ReaderPage> {
       return const _PdfTabStub();
     }
 
+    final from = session.fromPage;
+    final to = session.toPage;
+    final initial = SectionPageRange.clampPage(from, from, to);
+
     return Column(
       children: [
         Expanded(
           child: PdfViewer.file(
             session.localPath!,
             controller: _pdfController,
-            initialPageNumber: session.fromPage.clamp(1, 9999),
+            initialPageNumber: initial,
             params: PdfViewerParams(
               backgroundColor: FolioColors.background,
+              layoutPages: (pages, params) => SectionPageRange.layoutPagesOnly(
+                pages: pages,
+                params: params,
+                fromPage: from,
+                toPage: to,
+              ),
               onPageChanged: (pageNumber) {
-                final total = _pdfController.pageCount;
-                setState(() {
-                  _pageLabel =
-                      '${pageNumber ?? '–'} / ${total > 0 ? total : '–'}';
-                });
-                if (pageNumber != null && total > 0) {
-                  final span = (session.toPage - session.fromPage + 1)
-                      .clamp(1, total);
-                  final relative =
-                      ((pageNumber - session.fromPage + 1) / span)
-                          .clamp(0.0, 1.0);
-                  context
-                      .read<SessionsCubit>()
-                      .updateProgress(session.id, relative);
+                if (pageNumber == null) return;
+                final clamped =
+                    SectionPageRange.clampPage(pageNumber, from, to);
+                if (clamped != pageNumber) {
+                  _pdfController.goToPage(pageNumber: clamped);
+                  return;
                 }
+                setState(() {
+                  _pageLabel = SectionPageRange.pageLabel(clamped, from, to);
+                });
+                final span = (to - from + 1).clamp(1, 999999);
+                final relative =
+                    ((clamped - from + 1) / span).clamp(0.0, 1.0);
+                context
+                    .read<SessionsCubit>()
+                    .updateProgress(session.id, relative);
               },
             ),
           ),
@@ -509,7 +656,7 @@ class _ReaderPageState extends State<ReaderPage> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               color: FolioColors.surface,
               borderRadius: BorderRadius.circular(FolioColors.radiusCard),
@@ -521,14 +668,41 @@ class _ReaderPageState extends State<ReaderPage> {
                   Icons.remove,
                   onTap: () => _pdfController.zoomDown(),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 4),
                 _ZoomBtn(
                   Icons.add,
                   onTap: () => _pdfController.zoomUp(),
                 ),
+                const SizedBox(width: 8),
+                _ZoomBtn(
+                  Icons.chevron_left,
+                  onTap: () {
+                    final current = _pdfController.pageNumber ?? from;
+                    final prev = SectionPageRange.clampPage(
+                      current - 1,
+                      from,
+                      to,
+                    );
+                    _pdfController.goToPage(pageNumber: prev);
+                  },
+                ),
+                _ZoomBtn(
+                  Icons.chevron_right,
+                  onTap: () {
+                    final current = _pdfController.pageNumber ?? from;
+                    final next = SectionPageRange.clampPage(
+                      current + 1,
+                      from,
+                      to,
+                    );
+                    _pdfController.goToPage(pageNumber: next);
+                  },
+                ),
                 const Spacer(),
                 Text(
-                  _pageLabel,
+                  _pageLabel == '– / –'
+                      ? SectionPageRange.pageLabel(initial, from, to)
+                      : _pageLabel,
                   style: GoogleFonts.inter(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -538,7 +712,11 @@ class _ReaderPageState extends State<ReaderPage> {
                 _ZoomBtn(
                   Icons.fit_screen_outlined,
                   onTap: () {
-                    final page = _pdfController.pageNumber ?? 1;
+                    final page = SectionPageRange.clampPage(
+                      _pdfController.pageNumber ?? from,
+                      from,
+                      to,
+                    );
                     _pdfController.goToPage(pageNumber: page);
                   },
                 ),
@@ -649,8 +827,8 @@ class _ToggleBar extends StatelessWidget {
 
     return Row(
       children: [
-        tabItem('Summary', _ReaderTab.summary),
         tabItem('Original PDF', _ReaderTab.pdf),
+        tabItem('Summary', _ReaderTab.summary),
       ],
     );
   }
@@ -660,14 +838,18 @@ class _FormatBar extends StatelessWidget {
   const _FormatBar({
     required this.format,
     required this.length,
+    required this.isRtl,
     required this.onFormat,
     required this.onLength,
+    required this.onToggleDirection,
   });
 
   final String format;
   final String length;
+  final bool isRtl;
   final VoidCallback onFormat;
   final VoidCallback onLength;
+  final VoidCallback onToggleDirection;
 
   @override
   Widget build(BuildContext context) {
@@ -705,13 +887,32 @@ class _FormatBar extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
       color: FolioColors.surfaceElevated,
       child: Row(
         children: [
           chip(format, onFormat),
           const SizedBox(width: 8),
           chip(length, onLength),
+          const Spacer(),
+          TextButton.icon(
+            onPressed: onToggleDirection,
+            icon: Icon(
+              isRtl
+                  ? Icons.format_textdirection_r_to_l
+                  : Icons.format_textdirection_l_to_r,
+              size: 18,
+              color: FolioColors.accent,
+            ),
+            label: Text(
+              isRtl ? 'RTL' : 'LTR',
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: FolioColors.accent,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -730,20 +931,24 @@ class _ChatPanel extends StatelessWidget {
     required this.scope,
     required this.messages,
     required this.loading,
+    required this.errorMessage,
     required this.controller,
     required this.onToggleExpand,
     required this.onScopeChanged,
     required this.onSend,
+    this.onRetry,
   });
 
   final bool expanded;
   final String scope;
   final List<_ChatLine> messages;
   final bool loading;
+  final String? errorMessage;
   final TextEditingController controller;
   final VoidCallback onToggleExpand;
   final ValueChanged<String> onScopeChanged;
   final VoidCallback onSend;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -797,6 +1002,13 @@ class _ChatPanel extends StatelessWidget {
           ),
           if (expanded) ...[
             const SizedBox(height: 12),
+            if (errorMessage != null) ...[
+              FolioInlineErrorBanner(
+                message: errorMessage!,
+                onRetry: onRetry,
+              ),
+              const SizedBox(height: 12),
+            ],
             SizedBox(
               height: 160,
               child: ListView.separated(
@@ -804,20 +1016,7 @@ class _ChatPanel extends StatelessWidget {
                 separatorBuilder: (_, _) => const SizedBox(height: 8),
                 itemBuilder: (context, i) {
                   if (loading && i == messages.length) {
-                    return const Align(
-                      alignment: Alignment.centerLeft,
-                      child: Padding(
-                        padding: EdgeInsets.all(8),
-                        child: SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: FolioColors.accent,
-                          ),
-                        ),
-                      ),
-                    );
+                    return const FolioTypingIndicator();
                   }
                   final m = messages[i];
                   return Align(
@@ -861,6 +1060,7 @@ class _ChatPanel extends StatelessWidget {
                 Expanded(
                   child: TextField(
                     controller: controller,
+                    enabled: !loading,
                     style: GoogleFonts.inter(fontSize: 14),
                     decoration: InputDecoration(
                       hintText: 'Ask Folio...',
@@ -879,16 +1079,18 @@ class _ChatPanel extends StatelessWidget {
                         borderSide: const BorderSide(color: FolioColors.border),
                       ),
                     ),
-                    onSubmitted: (_) => onSend(),
+                    onSubmitted: loading ? null : (_) => onSend(),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Material(
-                  color: FolioColors.accent,
+                  color: loading
+                      ? FolioColors.surfaceElevated
+                      : FolioColors.accent,
                   shape: const CircleBorder(),
                   child: InkWell(
                     customBorder: const CircleBorder(),
-                    onTap: onSend,
+                    onTap: loading ? null : onSend,
                     child: const SizedBox(
                       width: 40,
                       height: 40,
@@ -960,67 +1162,40 @@ class _PdfTabStub extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(24),
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Expanded(
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: FolioColors.pdfPage,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: FolioColors.border),
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Attention Is All You Need',
-                      style: GoogleFonts.inter(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: FolioColors.pdfText,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Demo preview — import a PDF to open the real viewer.',
-                      style: GoogleFonts.inter(
-                        fontSize: 12,
-                        color: FolioColors.textDim,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            width: 56,
+            height: 56,
             decoration: BoxDecoration(
               color: FolioColors.surface,
-              borderRadius: BorderRadius.circular(FolioColors.radiusCard),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: FolioColors.border),
             ),
-            child: Row(
-              children: [
-                const _ZoomBtn(Icons.remove),
-                const SizedBox(width: 8),
-                const _ZoomBtn(Icons.add),
-                const Spacer(),
-                Text(
-                  '12 / 45',
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const Spacer(),
-                const _ZoomBtn(Icons.fit_screen_outlined),
-              ],
+            child: const Icon(
+              Icons.picture_as_pdf_outlined,
+              color: FolioColors.accent,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'PDF unavailable',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Import a PDF to open the original document viewer.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+              fontSize: 14,
+              height: 1.45,
+              color: FolioColors.textSecondary,
             ),
           ),
         ],

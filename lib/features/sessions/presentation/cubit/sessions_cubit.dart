@@ -14,18 +14,14 @@ class SessionsCubit extends Cubit<List<ReadingSession>> {
 
   Future<void> hydrate() async {
     final saved = _store.loadSessions();
-    if (saved.isNotEmpty) {
-      emit(saved);
+    // Drop legacy demo sessions that never had a local PDF file.
+    final real = saved.where((s) => s.hasLocalPdf).toList();
+    if (real.length != saved.length) {
+      emit(real);
+      await _persist();
       return;
     }
-
-    if (!_store.demoSeeded) {
-      emit(List<ReadingSession>.from(_demoSessions));
-      await _persist();
-      await _store.markDemoSeeded();
-    } else {
-      emit(const []);
-    }
+    emit(saved);
   }
 
   Future<void> rename(String id, String title) async {
@@ -52,6 +48,16 @@ class SessionsCubit extends Cubit<List<ReadingSession>> {
     await _persist();
   }
 
+  Future<void> replaceAll(List<ReadingSession> sessions) async {
+    emit(List.of(sessions));
+    await _persist();
+  }
+
+  Future<void> deleteByBookId(String bookId) async {
+    emit(state.where((s) => s.bookId != bookId).toList());
+    await _persist();
+  }
+
   Future<void> updateProgress(String id, double progress) async {
     emit([
       for (final s in state)
@@ -63,6 +69,30 @@ class SessionsCubit extends Cubit<List<ReadingSession>> {
     await _persist();
   }
 
+  Future<void> saveSummary(String id, List<String> bullets) async {
+    final cleaned = bullets.map((b) => b.trim()).where((b) => b.isNotEmpty).toList();
+    emit([
+      for (final s in state)
+        if (s.id == id)
+          s.copyWith(
+            summaryBullets: cleaned,
+            summaryUpdatedAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          )
+        else
+          s,
+    ]);
+    await _persist();
+  }
+
+  Future<void> clearSummary(String id) async {
+    emit([
+      for (final s in state)
+        if (s.id == id) s.copyWith(clearSummary: true) else s,
+    ]);
+    await _persist();
+  }
+
   Future<void> clearAll() async {
     emit(const []);
     await _persist();
@@ -70,33 +100,3 @@ class SessionsCubit extends Cubit<List<ReadingSession>> {
 
   Future<void> _persist() => _store.saveSessions(state);
 }
-
-final _demoSessions = [
-  ReadingSession(
-    id: '1',
-    title: 'Transformer Architectures',
-    pdfName: 'Attention_Is_All_You_Need.pdf',
-    fromPage: 12,
-    toPage: 45,
-    updatedAt: DateTime(2024, 5, 14),
-    progress: 0.62,
-  ),
-  ReadingSession(
-    id: '2',
-    title: 'Convolutional Networks',
-    pdfName: 'Deep_Learning_Book.pdf',
-    fromPage: 320,
-    toPage: 380,
-    updatedAt: DateTime(2024, 5, 12),
-    progress: 0.28,
-  ),
-  ReadingSession(
-    id: '3',
-    title: 'Contrastive Learning',
-    pdfName: 'SimCLR_V2_Review.pdf',
-    fromPage: 1,
-    toPage: 8,
-    updatedAt: DateTime(2024, 5, 8),
-    progress: 0.9,
-  ),
-];

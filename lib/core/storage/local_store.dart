@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:nexus_chat/features/books/domain/book.dart';
 import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
 import 'package:nexus_chat/features/settings/domain/folio_settings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,18 +11,14 @@ class LocalStore {
   final SharedPreferences _prefs;
 
   static const _sessionsKey = 'folio_sessions_v1';
+  static const _booksKey = 'folio_books_v1';
   static const _settingsKey = 'folio_settings_v1';
   static const _annotationsKey = 'folio_annotations_v1';
-  static const _seededKey = 'folio_demo_seeded_v1';
 
   static Future<LocalStore> open() async {
     final prefs = await SharedPreferences.getInstance();
     return LocalStore(prefs);
   }
-
-  bool get demoSeeded => _prefs.getBool(_seededKey) ?? false;
-
-  Future<void> markDemoSeeded() => _prefs.setBool(_seededKey, true);
 
   List<ReadingSession> loadSessions() {
     final raw = _prefs.getString(_sessionsKey);
@@ -40,6 +37,25 @@ class LocalStore {
   Future<void> saveSessions(List<ReadingSession> sessions) async {
     final encoded = jsonEncode(sessions.map((s) => s.toJson()).toList());
     await _prefs.setString(_sessionsKey, encoded);
+  }
+
+  List<Book> loadBooks() {
+    final raw = _prefs.getString(_booksKey);
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final list = jsonDecode(raw) as List<dynamic>;
+      return list
+          .whereType<Map>()
+          .map((e) => Book.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> saveBooks(List<Book> books) async {
+    final encoded = jsonEncode(books.map((b) => b.toJson()).toList());
+    await _prefs.setString(_booksKey, encoded);
   }
 
   FolioSettings loadSettings() {

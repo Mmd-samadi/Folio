@@ -5,6 +5,7 @@ import 'package:nexus_chat/core/constants/app_constants.dart';
 import 'package:nexus_chat/core/router/app_router.dart';
 import 'package:nexus_chat/core/storage/local_store.dart';
 import 'package:nexus_chat/core/theme/app_theme.dart';
+import 'package:nexus_chat/features/books/presentation/cubit/books_cubit.dart';
 import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.dart';
 import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.dart';
 import 'package:pdfrx/pdfrx.dart';
@@ -28,6 +29,7 @@ class FolioApp extends StatefulWidget {
 
 class _FolioAppState extends State<FolioApp> {
   late final SessionsCubit _sessionsCubit;
+  late final BooksCubit _booksCubit;
   late final SettingsCubit _settingsCubit;
   late final router = createAppRouter();
 
@@ -35,12 +37,19 @@ class _FolioAppState extends State<FolioApp> {
   void initState() {
     super.initState();
     _sessionsCubit = SessionsCubit(store: widget.store);
+    _booksCubit = BooksCubit(store: widget.store, sessions: _sessionsCubit);
     _settingsCubit = SettingsCubit(store: widget.store);
-    _sessionsCubit.hydrate();
+    _hydrate();
+  }
+
+  Future<void> _hydrate() async {
+    await _sessionsCubit.hydrate();
+    await _booksCubit.hydrate();
   }
 
   @override
   void dispose() {
+    _booksCubit.close();
     _sessionsCubit.close();
     _settingsCubit.close();
     super.dispose();
@@ -51,6 +60,7 @@ class _FolioAppState extends State<FolioApp> {
     return MultiBlocProvider(
       providers: [
         BlocProvider.value(value: _sessionsCubit),
+        BlocProvider.value(value: _booksCubit),
         BlocProvider.value(value: _settingsCubit),
         RepositoryProvider.value(value: widget.store),
       ],

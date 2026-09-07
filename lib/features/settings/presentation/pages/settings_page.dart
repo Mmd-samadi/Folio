@@ -6,6 +6,7 @@ import 'package:nexus_chat/core/constants/app_constants.dart';
 import 'package:nexus_chat/core/theme/folio_colors.dart';
 import 'package:nexus_chat/features/settings/domain/folio_settings.dart';
 import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.dart';
+import 'package:nexus_chat/features/settings/presentation/widgets/api_key_gate_sheet.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -20,11 +21,23 @@ class SettingsPage extends StatelessWidget {
     final result = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: FolioColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+      ),
       builder: (context) {
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: FolioColors.textDim,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Text(
@@ -62,44 +75,11 @@ class SettingsPage extends StatelessWidget {
   }
 
   Future<void> _editApiKey(BuildContext context) async {
-    final controller = TextEditingController();
-    final key = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: FolioColors.surface,
-        title: Text(
-          'API Key',
-          style: GoogleFonts.inter(color: FolioColors.textPrimary),
-        ),
-        content: TextField(
-          controller: controller,
-          obscureText: true,
-          decoration: const InputDecoration(
-            hintText: 'Paste Gemini API key',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: Text(
-              'Save',
-              style: GoogleFonts.inter(color: FolioColors.accent),
-            ),
-          ),
-        ],
-      ),
-    );
-    if (key != null && key.isNotEmpty && context.mounted) {
-      await context.read<SettingsCubit>().setApiKey(key);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('API key saved.')),
-        );
-      }
+    final saved = await showApiKeyGateSheet(context, editing: true);
+    if (saved && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('API key saved.')),
+      );
     }
   }
 

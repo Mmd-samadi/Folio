@@ -9,11 +9,16 @@ class SessionCard extends StatelessWidget {
     required this.session,
     required this.onTap,
     required this.onMenuSelected,
+    this.onSummarize,
+    this.summarizing = false,
   });
 
   final ReadingSession session;
   final VoidCallback onTap;
   final ValueChanged<String> onMenuSelected;
+  /// Runs AI summarize while staying on Book folder. Null hides the button.
+  final VoidCallback? onSummarize;
+  final bool summarizing;
 
   @override
   Widget build(BuildContext context) {
@@ -25,7 +30,7 @@ class SessionCard extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: onTap,
+        onTap: summarizing ? null : onTap,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 8, 16),
           child: Column(
@@ -48,16 +53,50 @@ class SessionCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          session.pdfName,
+                          session.pageRangeLabel,
                           style: GoogleFonts.inter(
                             fontSize: 12,
                             color: FolioColors.textSecondary,
                           ),
                         ),
+                        if (session.hasSummary) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: FolioColors.surfaceElevated,
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: FolioColors.border),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.check_circle_outline,
+                                  size: 14,
+                                  color: FolioColors.accent,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Summarized',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: FolioColors.accent,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
                   PopupMenuButton<String>(
+                    enabled: !summarizing,
                     icon: const Icon(
                       Icons.more_vert,
                       color: FolioColors.textSecondary,
@@ -71,6 +110,25 @@ class SessionCard extends StatelessWidget {
                     ),
                     onSelected: onMenuSelected,
                     itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: session.hasSummary ? 'resummarize' : 'summarize',
+                        child: Text(
+                          session.hasSummary ? 'Re-summarize' : 'Summarize',
+                          style: GoogleFonts.inter(
+                            color: FolioColors.textPrimary,
+                          ),
+                        ),
+                      ),
+                      if (session.hasSummary)
+                        PopupMenuItem(
+                          value: 'view_summary',
+                          child: Text(
+                            'View summary',
+                            style: GoogleFonts.inter(
+                              color: FolioColors.textPrimary,
+                            ),
+                          ),
+                        ),
                       PopupMenuItem(
                         value: 'rename',
                         child: Text(
@@ -95,7 +153,7 @@ class SessionCard extends StatelessWidget {
               Row(
                 children: [
                   Text(
-                    session.pageRangeLabel,
+                    '${(session.progress * 100).round()}% read',
                     style: GoogleFonts.inter(
                       fontSize: 12,
                       color: FolioColors.textSecondary,
@@ -121,6 +179,75 @@ class SessionCard extends StatelessWidget {
                   color: FolioColors.accent,
                 ),
               ),
+              if (onSummarize != null && !session.hasSummary) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 36,
+                  child: OutlinedButton(
+                    onPressed: summarizing ? null : onSummarize,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: FolioColors.accent,
+                      side: const BorderSide(color: FolioColors.accent),
+                      shape: RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.circular(FolioColors.radiusButton),
+                      ),
+                    ),
+                    child: summarizing
+                        ? Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: FolioColors.accent,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Summarizing…',
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          )
+                        : Text(
+                            'Summarize',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                  ),
+                ),
+              ],
+              if (onSummarize != null && session.hasSummary && summarizing) ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: FolioColors.accent,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Re-summarizing…',
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: FolioColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
