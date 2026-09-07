@@ -97,6 +97,124 @@ If the PDF pages are unreadable/empty, return:
 ''';
   }
 
+  /// Hybrid TOC refine: offline candidates + raw TOC text (no full PDF upload).
+  static String tocRefinePrompt({
+    required int fromPage,
+    required int toPage,
+    required String offlineCandidatesJson,
+    required String rawTocText,
+  }) {
+    return '''
+You are Folio's TOC refinement engine for technical books (PDF page indices = pdfrx 1-based).
+
+CONTEXT
+- User window: pages $fromPage–$toPage (inclusive).
+- Offline parser already extracted candidate TOC entries (may be incomplete, wrong page mapping, or missing early chapters).
+- Below is the raw selectable text from likely TOC pages (may lack spaces between words; reconstruct readable titles).
+- Printed page numbers in the book may DIFFER from PDF page indices. Prefer consistency with the offline candidates' page numbers when they form a coherent increasing sequence; if printed≠PDF, map using the observed offset inferred from multiple anchors (do not invent an offset from a single entry).
+
+OFFLINE CANDIDATES (JSON)
+$offlineCandidatesJson
+// each: { "title": string, "startPage": number }
+
+RAW TOC TEXT
+"""
+$rawTocText
+"""
+
+TASK
+1) Reconstruct the full ordered chapter/section list that the Table of Contents intends for this window.
+2) Fix missing early chapters (never collapse a large front+early-body range into a single "Untitled section" if TOC lists named chapters there).
+3) Restore spaces/punctuation in titles (e.g. "6.DecisionTrees" → "6. Decision Trees"). Keep original language.
+4) Assign absolute PDF start pages. Each section i: fromPage = start_i, toPage = start_{i+1}-1; last ends at $toPage.
+5) Include front matter only if TOC names it (Preface, Contents, Part I, …). If TOC does not name pages before the first chapter, you MAY use ONE short title such as "Front matter" (not "Untitled section") for that prefix — or split into named front-matter items when TOC lists them.
+6) Prefer chapter-level TOC entries over noisy subsection micro-entries unless the TOC clearly uses subsections as primary navigation.
+7) Do not skip chapter numbers when they appear in TOC (if TOC has 1…5 then 6, all must appear).
+
+HARD RULES
+- Stay inside $fromPage–$toPage.
+- Contiguous coverage: first.fromPage == $fromPage, last.toPage == $toPage, next.fromPage == prev.toPage+1.
+- No empty titles. Avoid the literal title "Untitled section" unless the TOC truly has no label and content is unreadable.
+- Output STRICT JSON only (no markdown).
+
+OUTPUT
+{
+  "window": { "fromPage": $fromPage, "toPage": $toPage },
+  "topics": [
+    {
+      "title": "string",
+      "fromPage": number,
+      "toPage": number,
+      "confidence": "high" | "medium" | "low",
+      "signal": "toc" | "toc_inferred" | "offset_mapped"
+    }
+  ],
+  "notes": "short note: what was fixed (missing chapters, page offset, title cleanup)",
+  "pageOffsetUsed": null
+}
+''';
+  }
+
+  /// Refines incomplete offline TOC using Gemini (text-only; no PDF bytes).
+  Future<TopicDetectionResult> refineToc({
+    required int fromPage,
+    required int toPage,
+    required List<Map<String, dynamic>> offlineCandidates,
+    required String rawTocText,
+  }) async {
+    if (fromPage < 1 || toPage < fromPage) {
+      throw ApiException('Enter a valid page range.');
+    }
+
+    final candidatesJson = const JsonEncoder.withIndent('  ').convert(
+      offlineCandidates,
+    );
+    final prompt = tocRefinePrompt(
+      fromPage: fromPage,
+      toPage: toPage,
+      offlineCandidatesJson: candidatesJson,
+      rawTocText: rawTocText.trim().isEmpty ? '(empty)' : rawTocText,
+    );
+
+    try {
+      final response = await _model.generateContent([
+        Content.text(prompt),
+      ]);
+
+      final text = response.text?.trim() ?? '';
+      if (text.isEmpty) {
+        return TopicDetectionResult.fallback(fromPage, toPage);
+      }
+
+      final parsed = TopicDetectionResult.parse(
+        text,
+        fromPage: fromPage,
+        toPage: toPage,
+      );
+      final notes = parsed.notes;
+      return TopicDetectionResult(
+        fromPage: parsed.fromPage,
+        toPage: parsed.toPage,
+        topics: parsed.topics,
+        notes: (notes == null || notes.isEmpty)
+            ? 'From TOC + AI refine'
+            : 'From TOC + AI refine — $notes',
+      );
+    } on SocketException {
+      throw NetworkException(AppConstants.offlineErrorMessage);
+    } on TimeoutException {
+      throw NetworkException(AppConstants.offlineErrorMessage);
+    } on GenerativeAIException catch (error) {
+      throw ApiException(error.message);
+    } catch (error) {
+      if (_isNetworkError(error)) {
+        throw NetworkException(AppConstants.offlineErrorMessage);
+      }
+      if (error is ApiException || error is NetworkException) rethrow;
+      rethrow;
+    }
+  }
+
   Future<List<String>> summarizePdf({
     required Uint8List pdfBytes,
     required String format,
@@ -131,6 +249,48 @@ Return ONLY the summary lines. For Bullet format, one bullet per line without le
         throw ApiException(AppConstants.genericErrorMessage);
       }
       return _parseBullets(text);
+    } on SocketException {
+      throw NetworkException(AppConstants.offlineErrorMessage);
+    } on TimeoutException {
+      throw NetworkException(AppConstants.offlineErrorMessage);
+    } on GenerativeAIException catch (error) {
+      throw ApiException(error.message);
+    } catch (error) {
+      if (_isNetworkError(error)) {
+        throw NetworkException(AppConstants.offlineErrorMessage);
+      }
+      if (error is ApiException || error is NetworkException) rethrow;
+      throw ApiException(AppConstants.genericErrorMessage);
+    }
+  }
+
+  /// Summarize plain extracted section text (lighter than uploading full PDF).
+  Future<List<String>> summarizeText({
+    required String text,
+    required String format,
+    required String length,
+    String? customPrompt,
+  }) async {
+    final clipped = text.length > 120000 ? text.substring(0, 120000) : text;
+    final prompt = '''
+${customPrompt?.trim().isNotEmpty == true ? customPrompt!.trim() : defaultPrompt}
+
+Output format: $format
+Length: $length
+
+Return ONLY the summary lines. For Bullet format, one bullet per line without leading "- " markers.
+
+SOURCE TEXT:
+$clipped
+''';
+
+    try {
+      final response = await _model.generateContent([Content.text(prompt)]);
+      final out = response.text?.trim() ?? '';
+      if (out.isEmpty) {
+        throw ApiException(AppConstants.genericErrorMessage);
+      }
+      return _parseBullets(out);
     } on SocketException {
       throw NetworkException(AppConstants.offlineErrorMessage);
     } on TimeoutException {

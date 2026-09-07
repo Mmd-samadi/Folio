@@ -2,12 +2,15 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:nexus_chat/core/theme/folio_colors.dart';
 import 'package:nexus_chat/core/widgets/folio_buttons.dart';
 import 'package:nexus_chat/features/chat/data/api_exception.dart';
-import 'package:nexus_chat/features/import/data/heading_topic_detector.dart';
+import 'package:nexus_chat/features/import/data/offline_section_detector.dart';
+import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.dart';
+import 'package:nexus_chat/features/settings/presentation/widgets/api_key_gate_sheet.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 /// Pick a page range (or entire book) while previewing the PDF, then detect headings.
@@ -37,6 +40,7 @@ class _TopicDetectPageState extends State<TopicDetectPage> {
   var _defaultsApplied = false;
   var _currentPage = 1;
   var _pageCount = 0;
+  var _loadingStatus = 'Scanning headings…';
   String? _error;
 
   @override
@@ -198,14 +202,25 @@ class _TopicDetectPageState extends State<TopicDetectPage> {
 
     setState(() {
       _loading = true;
+      _loadingStatus = 'Scanning for table of contents…';
       _error = null;
     });
 
     try {
-      final result = await const HeadingTopicDetector().detect(
+      final result = await const OfflineSectionDetector().detect(
         pdfPath: path,
         fromPage: _from,
         toPage: _to,
+        onStatus: (status) {
+          if (!mounted) return;
+          setState(() => _loadingStatus = status);
+        },
+        resolveApiKey: () async {
+          if (!mounted) return null;
+          final hasKey = await ensureFolioApiKey(context);
+          if (!mounted || !hasKey) return null;
+          return context.read<SettingsCubit>().state.apiKey;
+        },
       );
       if (!mounted) return;
 
@@ -303,8 +318,8 @@ class _TopicDetectPageState extends State<TopicDetectPage> {
               ],
             ),
             if (_loading)
-              const Positioned.fill(
-                child: _ScanningOverlay(),
+              Positioned.fill(
+                child: _ScanningOverlay(status: _loadingStatus),
               ),
           ],
         ),
@@ -314,7 +329,9 @@ class _TopicDetectPageState extends State<TopicDetectPage> {
 }
 
 class _ScanningOverlay extends StatelessWidget {
-  const _ScanningOverlay();
+  const _ScanningOverlay({required this.status});
+
+  final String status;
 
   @override
   Widget build(BuildContext context) {
@@ -334,7 +351,8 @@ class _ScanningOverlay extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             Text(
-              'Scanning headings…',
+              status,
+              textAlign: TextAlign.center,
               style: GoogleFonts.inter(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,

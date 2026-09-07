@@ -104,9 +104,11 @@ GoRouter createAppRouter() {
           final id = state.pathParameters['id']!;
           final map = state.extra is Map ? state.extra as Map : const {};
           final tab = _extraString(map, 'tab');
+          final page = _extraInt(map, 'page');
           return ReaderPage(
             sessionId: id,
             initialTab: tab == 'summary' ? 'summary' : 'pdf',
+            initialPage: page,
           );
         },
       ),

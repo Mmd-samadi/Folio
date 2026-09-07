@@ -32,16 +32,38 @@ class HeadingTopicDetector {
     this.bodyMinChars = 20,
   });
 
-  /// Line height must be ≥ bodySize × this to count as a heading.
   final double heightRatio;
-
   final int minTitleLength;
   final int maxTitleLength;
-
-  /// Prefer lines at least this long when estimating body font size.
   final int bodyMinChars;
 
   Future<TopicDetectionResult> detect({
+    required String pdfPath,
+    required int fromPage,
+    required int toPage,
+  }) async {
+    final lines = await loadLines(
+      pdfPath: pdfPath,
+      fromPage: fromPage,
+      toPage: toPage,
+    );
+    if (lines.isEmpty) {
+      return TopicDetectionResult.fallback(
+        fromPage,
+        toPage,
+        notes: 'No selectable text in this window.',
+      );
+    }
+    final lastPage = lines.map((l) => l.pageNumber).reduce(math.max);
+    return detectFromLines(
+      lines,
+      fromPage: fromPage,
+      toPage: math.min(toPage, lastPage),
+    );
+  }
+
+  /// Load visual text lines for a page window (shared with TOC detection).
+  Future<List<PdfTextLine>> loadLines({
     required String pdfPath,
     required int fromPage,
     required int toPage,
@@ -57,30 +79,17 @@ class HeadingTopicDetector {
     try {
       doc = await PdfDocument.openFile(pdfPath);
       final pageCount = doc.pages.length;
-      if (pageCount == 0) {
-        return TopicDetectionResult.fallback(
-          fromPage,
-          toPage,
-          notes: 'PDF has no pages.',
-        );
-      }
+      if (pageCount == 0) return const [];
       final clampedTo = math.min(toPage, pageCount);
-      if (fromPage > pageCount) {
-        return TopicDetectionResult.fallback(
-          fromPage,
-          toPage,
-          notes: 'Page range is outside this PDF.',
-        );
-      }
+      if (fromPage > pageCount) return const [];
 
       final lines = <PdfTextLine>[];
       for (var pageNum = fromPage; pageNum <= clampedTo; pageNum++) {
         final page = doc.pages[pageNum - 1];
         final structured = await page.loadStructuredText();
-        lines.addAll(_linesFromPage(structured));
+        lines.addAll(linesFromPage(structured));
       }
-
-      return detectFromLines(lines, fromPage: fromPage, toPage: clampedTo);
+      return lines;
     } finally {
       await doc?.dispose();
     }
@@ -126,7 +135,6 @@ class HeadingTopicDetector {
       );
     }
 
-    // One section start per page (tallest heading wins).
     final byPage = <int, PdfTextLine>{};
     for (final h in headings) {
       final existing = byPage[h.pageNumber];
@@ -160,15 +168,15 @@ class HeadingTopicDetector {
       fromPage: fromPage,
       toPage: toPage,
       topics: TopicDetectionResult.normalizeContiguous(raw, fromPage, toPage),
-      notes: 'Detected from larger text than body (offline).',
+      notes: 'From heading sizes',
     );
   }
 
-  List<PdfTextLine> _linesFromPage(PdfPageText pageText) {
+  /// Public for TOC facade / tests.
+  List<PdfTextLine> linesFromPage(PdfPageText pageText) {
     final fragments = pageText.fragments;
     if (fragments.isEmpty) return const [];
 
-    // Reading order: top → bottom (PDF y grows upward).
     final sorted = [...fragments]
       ..sort((a, b) {
         final topCmp = b.bounds.top.compareTo(a.bounds.top);
@@ -243,8 +251,6 @@ class HeadingTopicDetector {
       return _median(bodyish);
     }
 
-    // Not enough long lines: use the lower half of heights so tall
-    // headings / page numbers do not inflate the body estimate.
     final heights = [for (final l in lines) l.height]..sort();
     if (heights.isEmpty) return 0;
     final lowerCount = math.max(1, (heights.length / 2).ceil());
@@ -256,12 +262,10 @@ class HeadingTopicDetector {
     if (text.length < minTitleLength || text.length > maxTitleLength) {
       return false;
     }
-    // Page numbers / lone digits.
     if (RegExp(r'^\d{1,4}$').hasMatch(text)) return false;
     if (RegExp(r'^page\s*\d+$', caseSensitive: false).hasMatch(text)) {
       return false;
     }
-    // Need some non-digit / non-punctuation characters.
     final wordChars = text.replaceAll(
       RegExp(r'[\s\d\.\,\;\:\!\?\-\—\–\(\)\[\]\{\}\"\x27/\\]+'),
       '',
@@ -291,7 +295,6 @@ class HeadingTopicDetector {
       final closeVertically =
           samePage && (prev.top - c.top).abs() <= prev.height * 2.2;
       if (samePage && similarHeight && closeVertically) {
-        // Multi-line title: keep top line, append text.
         merged[merged.length - 1] = PdfTextLine(
           pageNumber: prev.pageNumber,
           text: '${prev.text} ${c.text}'.trim(),

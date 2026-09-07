@@ -5,6 +5,7 @@ import 'package:nexus_chat/core/router/app_router.dart';
 import 'package:nexus_chat/core/storage/local_store.dart';
 import 'package:nexus_chat/core/theme/app_theme.dart';
 import 'package:nexus_chat/features/books/presentation/cubit/books_cubit.dart';
+import 'package:nexus_chat/features/reader/presentation/cubit/summarize_job_cubit.dart';
 import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.dart';
 import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -21,9 +22,11 @@ void main() {
     final sessions = SessionsCubit(store: store, seed: const []);
     final books = BooksCubit(store: store, sessions: sessions, seed: const []);
     final settings = SettingsCubit(store: store);
+    final summarizeJob = SummarizeJobCubit();
     addTearDown(books.close);
     addTearDown(sessions.close);
     addTearDown(settings.close);
+    addTearDown(summarizeJob.close);
 
     await tester.pumpWidget(
       MultiBlocProvider(
@@ -31,6 +34,7 @@ void main() {
           BlocProvider.value(value: sessions),
           BlocProvider.value(value: books),
           BlocProvider.value(value: settings),
+          BlocProvider.value(value: summarizeJob),
           RepositoryProvider.value(value: store),
         ],
         child: MaterialApp.router(

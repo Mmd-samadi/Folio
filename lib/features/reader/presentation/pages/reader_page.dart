@@ -1,6 +1,7 @@
+import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -14,6 +15,9 @@ import 'package:nexus_chat/features/chat/data/network_exception.dart';
 import 'package:nexus_chat/features/reader/data/folio_ai_service.dart';
 import 'package:nexus_chat/features/reader/data/section_summarizer.dart';
 import 'package:nexus_chat/features/reader/domain/section_page_range.dart';
+import 'package:nexus_chat/features/reader/domain/section_siblings.dart';
+import 'package:nexus_chat/features/reader/domain/summarize_eta.dart';
+import 'package:nexus_chat/features/reader/presentation/cubit/summarize_job_cubit.dart';
 import 'package:nexus_chat/features/reader/presentation/widgets/reader_sheets.dart';
 import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
 import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.dart';
@@ -21,16 +25,21 @@ import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.d
 import 'package:nexus_chat/features/settings/presentation/widgets/api_key_gate_sheet.dart';
 import 'package:pdfrx/pdfrx.dart';
 
+Uint8List _readPdfBytesIsolate(String path) => File(path).readAsBytesSync();
+
 class ReaderPage extends StatefulWidget {
   const ReaderPage({
     super.key,
     required this.sessionId,
     this.initialTab = 'pdf',
+    this.initialPage,
   });
 
   final String sessionId;
   /// `pdf` or `summary`
   final String initialTab;
+  /// Optional absolute PDF page to open (e.g. previous section's last page).
+  final int? initialPage;
 
   @override
   State<ReaderPage> createState() => _ReaderPageState();
@@ -101,26 +110,31 @@ class _ReaderPageState extends State<ReaderPage> {
         _loadingSummary = false;
       });
     }
+    // PDF tab uses file path; bytes load lazily for chat to avoid UI freezes.
+  }
 
-    if (session.hasLocalPdf) {
-      try {
-        final bytes = await File(session.localPath!).readAsBytes();
-        if (!mounted) return;
-        setState(() => _pdfBytes = bytes);
-        // Do not auto-summarize on open — user triggers explicitly.
-      } catch (_) {
-        if (!mounted) return;
-        setState(() {
-          if (!session.hasSummary) {
-            _summaryError = 'Could not read the PDF file.';
-            _bullets = const [];
-          }
-        });
-      }
+  Future<Uint8List?> _ensurePdfBytes(ReadingSession session) async {
+    if (_pdfBytes != null) return _pdfBytes;
+    if (!session.hasLocalPdf) return null;
+    try {
+      final bytes = await compute(_readPdfBytesIsolate, session.localPath!);
+      if (!mounted) return bytes;
+      setState(() => _pdfBytes = bytes);
+      return bytes;
+    } catch (_) {
+      return null;
     }
   }
 
   Future<void> _summarize(ReadingSession session) async {
+    final jobCubit = context.read<SummarizeJobCubit>();
+    if (jobCubit.isBusy) {
+      setState(() {
+        _summaryError = 'Another summary is running';
+      });
+      return;
+    }
+
     final hasKey = await ensureFolioApiKey(context);
     if (!mounted) return;
     if (!hasKey) {
@@ -132,16 +146,41 @@ class _ReaderPageState extends State<ReaderPage> {
       return;
     }
 
+    var fileSize = 0;
+    try {
+      if (session.hasLocalPdf) {
+        fileSize = await File(session.localPath!).length();
+      }
+    } catch (_) {}
+    final eta = SummarizeEta.estimateSeconds(
+      fromPage: session.fromPage,
+      toPage: session.toPage,
+      fileSizeBytes: fileSize,
+    );
+    final started = jobCubit.tryBegin(sessionId: session.id, etaSeconds: eta);
+    if (!started) {
+      setState(() {
+        _summaryError = 'Another summary is running';
+      });
+      return;
+    }
+
     setState(() {
       _loadingSummary = true;
       _summaryError = null;
     });
 
+    if (!mounted) {
+      jobCubit.end();
+      return;
+    }
+    final sessions = context.read<SessionsCubit>();
+    final settings = context.read<SettingsCubit>().state;
+
     try {
-      final settings = context.read<SettingsCubit>().state;
       final bullets = await const SectionSummarizer().summarize(
         session: session,
-        sessions: context.read<SessionsCubit>(),
+        sessions: sessions,
         apiKey: settings.apiKey,
         format: _format,
         length: _length,
@@ -177,7 +216,62 @@ class _ReaderPageState extends State<ReaderPage> {
         _loadingSummary = false;
         _summaryError = 'Summarization failed. Please try again.';
       });
+    } finally {
+      jobCubit.end();
     }
+  }
+
+  void _goToSibling(ReadingSession sibling, {required int page}) {
+    context.pushReplacement(
+      '/reader/${sibling.id}',
+      extra: {
+        'tab': 'pdf',
+        'page': page,
+      },
+    );
+  }
+
+  void _onPdfPrev(ReadingSession session) {
+    final from = session.fromPage;
+    final current = _pdfController.pageNumber ?? from;
+    if (current > from) {
+      _pdfController.goToPage(pageNumber: current - 1);
+      return;
+    }
+    final siblings = SectionSiblings.orderedForBook(
+      context.read<SessionsCubit>().state,
+      session.bookId,
+    );
+    final prev = SectionSiblings.previous(siblings, session.id);
+    if (prev == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('First section')),
+      );
+      return;
+    }
+    _goToSibling(prev, page: prev.toPage);
+  }
+
+  void _onPdfNext(ReadingSession session) {
+    final from = session.fromPage;
+    final to = session.toPage;
+    final current = _pdfController.pageNumber ?? from;
+    if (current < to) {
+      _pdfController.goToPage(pageNumber: current + 1);
+      return;
+    }
+    final siblings = SectionSiblings.orderedForBook(
+      context.read<SessionsCubit>().state,
+      session.bookId,
+    );
+    final next = SectionSiblings.next(siblings, session.id);
+    if (next == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Last section')),
+      );
+      return;
+    }
+    _goToSibling(next, page: next.fromPage);
   }
 
   Future<void> _sendChat(
@@ -218,7 +312,9 @@ class _ReaderPageState extends State<ReaderPage> {
     });
 
     try {
-      if (_pdfBytes == null) {
+      final pdfBytes = await _ensurePdfBytes(session);
+      if (!mounted) return;
+      if (pdfBytes == null) {
         setState(() {
           _messages.add(
             const _ChatLine(
@@ -235,7 +331,7 @@ class _ReaderPageState extends State<ReaderPage> {
 
       final apiKey = context.read<SettingsCubit>().state.apiKey;
       final reply = await FolioAiService(apiKey: apiKey).askAboutPdf(
-        pdfBytes: _pdfBytes!,
+        pdfBytes: pdfBytes,
         question: text,
         scope: _chatScope,
         fromPage: session.fromPage,
@@ -459,7 +555,19 @@ class _ReaderPageState extends State<ReaderPage> {
     final direction = isRtl ? TextDirection.rtl : TextDirection.ltr;
 
     if (_loadingSummary) {
-      return const FolioSummarySkeleton();
+      return BlocBuilder<SummarizeJobCubit, SummarizeJobState?>(
+        builder: (context, job) {
+          if (job != null && job.sessionId == session.id) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: _ReaderSummarizeEta(job: job),
+              ),
+            );
+          }
+          return const FolioSummarySkeleton();
+        },
+      );
     }
 
     if (_summaryError != null && _bullets.isEmpty) {
@@ -615,13 +723,19 @@ class _ReaderPageState extends State<ReaderPage> {
 
     final from = session.fromPage;
     final to = session.toPage;
-    final initial = SectionPageRange.clampPage(from, from, to);
+    final preferred = widget.initialPage;
+    final initial = SectionPageRange.clampPage(
+      preferred ?? from,
+      from,
+      to,
+    );
 
     return Column(
       children: [
         Expanded(
           child: PdfViewer.file(
             session.localPath!,
+            key: ValueKey('pdf-${session.id}-$initial'),
             controller: _pdfController,
             initialPageNumber: initial,
             params: PdfViewerParams(
@@ -634,6 +748,29 @@ class _ReaderPageState extends State<ReaderPage> {
               ),
               onPageChanged: (pageNumber) {
                 if (pageNumber == null) return;
+                // Attempting to leave past end → next section.
+                if (pageNumber > to) {
+                  final siblings = SectionSiblings.orderedForBook(
+                    context.read<SessionsCubit>().state,
+                    session.bookId,
+                  );
+                  final next = SectionSiblings.next(siblings, session.id);
+                  if (next != null) {
+                    _goToSibling(next, page: next.fromPage);
+                    return;
+                  }
+                }
+                if (pageNumber < from) {
+                  final siblings = SectionSiblings.orderedForBook(
+                    context.read<SessionsCubit>().state,
+                    session.bookId,
+                  );
+                  final prev = SectionSiblings.previous(siblings, session.id);
+                  if (prev != null) {
+                    _goToSibling(prev, page: prev.toPage);
+                    return;
+                  }
+                }
                 final clamped =
                     SectionPageRange.clampPage(pageNumber, from, to);
                 if (clamped != pageNumber) {
@@ -676,27 +813,11 @@ class _ReaderPageState extends State<ReaderPage> {
                 const SizedBox(width: 8),
                 _ZoomBtn(
                   Icons.chevron_left,
-                  onTap: () {
-                    final current = _pdfController.pageNumber ?? from;
-                    final prev = SectionPageRange.clampPage(
-                      current - 1,
-                      from,
-                      to,
-                    );
-                    _pdfController.goToPage(pageNumber: prev);
-                  },
+                  onTap: () => _onPdfPrev(session),
                 ),
                 _ZoomBtn(
                   Icons.chevron_right,
-                  onTap: () {
-                    final current = _pdfController.pageNumber ?? from;
-                    final next = SectionPageRange.clampPage(
-                      current + 1,
-                      from,
-                      to,
-                    );
-                    _pdfController.goToPage(pageNumber: next);
-                  },
+                  onTap: () => _onPdfNext(session),
                 ),
                 const Spacer(),
                 Text(
@@ -1200,6 +1321,74 @@ class _PdfTabStub extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ReaderSummarizeEta extends StatefulWidget {
+  const _ReaderSummarizeEta({required this.job});
+
+  final SummarizeJobState job;
+
+  @override
+  State<_ReaderSummarizeEta> createState() => _ReaderSummarizeEtaState();
+}
+
+class _ReaderSummarizeEtaState extends State<_ReaderSummarizeEta> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final elapsed =
+        DateTime.now().difference(widget.job.startedAt).inSeconds.clamp(0, 9999);
+    final eta = widget.job.etaSeconds;
+    final progress = (elapsed / eta).clamp(0.0, 0.9);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 56,
+          height: 56,
+          child: CircularProgressIndicator(
+            value: progress,
+            strokeWidth: 3.5,
+            color: FolioColors.accent,
+            backgroundColor: FolioColors.surfaceElevated,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Summarizing…',
+          style: GoogleFonts.inter(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: FolioColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'About ${SummarizeEta.label(eta)} · ${elapsed}s elapsed',
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            color: FolioColors.textSecondary,
+          ),
+        ),
+      ],
     );
   }
 }

@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:nexus_chat/core/theme/folio_colors.dart';
+import 'package:nexus_chat/features/reader/domain/summarize_eta.dart';
+import 'package:nexus_chat/features/reader/presentation/cubit/summarize_job_cubit.dart';
 import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
 
 class SessionCard extends StatelessWidget {
@@ -10,18 +14,23 @@ class SessionCard extends StatelessWidget {
     required this.onTap,
     required this.onMenuSelected,
     this.onSummarize,
-    this.summarizing = false,
+    this.job,
+    this.anyJobRunning = false,
   });
 
   final ReadingSession session;
   final VoidCallback onTap;
   final ValueChanged<String> onMenuSelected;
-  /// Runs AI summarize while staying on Book folder. Null hides the button.
   final VoidCallback? onSummarize;
-  final bool summarizing;
+  final SummarizeJobState? job;
+  final bool anyJobRunning;
+
+  bool get _thisSummarizing => job?.sessionId == session.id;
 
   @override
   Widget build(BuildContext context) {
+    final summarizeBlocked = anyJobRunning && !_thisSummarizing;
+
     return Material(
       color: FolioColors.surface,
       shape: RoundedRectangleBorder(
@@ -30,7 +39,7 @@ class SessionCard extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: summarizing ? null : onTap,
+        onTap: _thisSummarizing ? null : onTap,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 8, 16),
           child: Column(
@@ -96,7 +105,7 @@ class SessionCard extends StatelessWidget {
                     ),
                   ),
                   PopupMenuButton<String>(
-                    enabled: !summarizing,
+                    enabled: !_thisSummarizing,
                     icon: const Icon(
                       Icons.more_vert,
                       color: FolioColors.textSecondary,
@@ -112,6 +121,7 @@ class SessionCard extends StatelessWidget {
                     itemBuilder: (context) => [
                       PopupMenuItem(
                         value: session.hasSummary ? 'resummarize' : 'summarize',
+                        enabled: !summarizeBlocked,
                         child: Text(
                           session.hasSummary ? 'Re-summarize' : 'Summarize',
                           style: GoogleFonts.inter(
@@ -179,79 +189,117 @@ class SessionCard extends StatelessWidget {
                   color: FolioColors.accent,
                 ),
               ),
-              if (onSummarize != null && !session.hasSummary) ...[
+              if (_thisSummarizing && job != null) ...[
+                const SizedBox(height: 14),
+                _SummarizeEtaIndicator(job: job!),
+              ] else if (onSummarize != null && !session.hasSummary) ...[
                 const SizedBox(height: 12),
                 SizedBox(
                   height: 36,
                   child: OutlinedButton(
-                    onPressed: summarizing ? null : onSummarize,
+                    onPressed: summarizeBlocked ? null : onSummarize,
                     style: OutlinedButton.styleFrom(
                       foregroundColor: FolioColors.accent,
-                      side: const BorderSide(color: FolioColors.accent),
+                      side: BorderSide(
+                        color: summarizeBlocked
+                            ? FolioColors.border
+                            : FolioColors.accent,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius:
                             BorderRadius.circular(FolioColors.radiusButton),
                       ),
                     ),
-                    child: summarizing
-                        ? Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: FolioColors.accent,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Summarizing…',
-                                style: GoogleFonts.inter(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          )
-                        : Text(
-                            'Summarize',
-                            style: GoogleFonts.inter(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                  ),
-                ),
-              ],
-              if (onSummarize != null && session.hasSummary && summarizing) ...[
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: FolioColors.accent,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Re-summarizing…',
+                    child: Text(
+                      summarizeBlocked
+                          ? 'Wait for other summary…'
+                          : 'Summarize',
                       style: GoogleFonts.inter(
-                        fontSize: 12,
-                        color: FolioColors.textSecondary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                  ],
+                  ),
                 ),
               ],
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _SummarizeEtaIndicator extends StatefulWidget {
+  const _SummarizeEtaIndicator({required this.job});
+
+  final SummarizeJobState job;
+
+  @override
+  State<_SummarizeEtaIndicator> createState() => _SummarizeEtaIndicatorState();
+}
+
+class _SummarizeEtaIndicatorState extends State<_SummarizeEtaIndicator> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final elapsed =
+        DateTime.now().difference(widget.job.startedAt).inSeconds.clamp(0, 9999);
+    final eta = widget.job.etaSeconds;
+    final progress = (elapsed / eta).clamp(0.0, 0.9);
+
+    return Row(
+      children: [
+        SizedBox(
+          width: 36,
+          height: 36,
+          child: CircularProgressIndicator(
+            value: progress,
+            strokeWidth: 3,
+            color: FolioColors.accent,
+            backgroundColor: FolioColors.surfaceElevated,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Summarizing…',
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: FolioColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'About ${SummarizeEta.label(eta)} · ${elapsed}s elapsed',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  color: FolioColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

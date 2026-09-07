@@ -1,7 +1,7 @@
 class AppConstants {
   AppConstants._();
 
-  static const geminiModel = 'gemini-3.6-flash';
+  static const geminiModel = 'gemini-2.5-flash';
   static const apiKeyEnv = 'GEMINI_API_KEY';
   static const appTitle = 'Folio';
   static const tagline = 'Read smarter';
