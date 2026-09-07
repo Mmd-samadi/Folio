@@ -4,12 +4,39 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:nexus_chat/core/constants/app_constants.dart';
 import 'package:nexus_chat/core/theme/folio_colors.dart';
+import 'package:nexus_chat/features/ai/data/local_gemma_service.dart';
+import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
 import 'package:nexus_chat/features/settings/domain/folio_settings.dart';
 import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.dart';
 import 'package:nexus_chat/features/settings/presentation/widgets/api_key_gate_sheet.dart';
 
-class SettingsPage extends StatelessWidget {
+class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
+
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  bool? _modelInstalled;
+  bool _checkingModel = true;
+  bool _downloading = false;
+  int _downloadProgress = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshModelStatus();
+  }
+
+  Future<void> _refreshModelStatus() async {
+    final installed = await LocalGemmaService.instance.isInstalled();
+    if (!mounted) return;
+    setState(() {
+      _modelInstalled = installed;
+      _checkingModel = false;
+    });
+  }
 
   Future<void> _pickOption({
     required BuildContext context,
@@ -83,6 +110,34 @@ class SettingsPage extends StatelessWidget {
     }
   }
 
+  Future<void> _downloadModel() async {
+    setState(() {
+      _downloading = true;
+      _downloadProgress = 0;
+    });
+    try {
+      await LocalGemmaService.instance.ensureInstalled(
+        onProgress: (p) {
+          if (mounted) setState(() => _downloadProgress = p);
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        _modelInstalled = true;
+        _downloading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('On-device model ready.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _downloading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -96,8 +151,46 @@ class SettingsPage extends StatelessWidget {
       ),
       body: BlocBuilder<SettingsCubit, FolioSettings>(
         builder: (context, settings) {
+          final modelStatus = _checkingModel
+              ? 'Checking…'
+              : _downloading
+                  ? 'Downloading $_downloadProgress%'
+                  : (_modelInstalled == true ? 'Installed' : 'Not downloaded');
+
           return ListView(
             children: [
+              _SettingRow(
+                label: 'AI provider',
+                value: settings.aiProvider.label,
+                onTap: () => _pickOption(
+                  context: context,
+                  title: 'AI provider',
+                  options: FolioAiProvider.values.map((e) => e.label).toList(),
+                  current: settings.aiProvider.label,
+                  onPicked: (v) {
+                    final provider = FolioAiProvider.values.firstWhere(
+                      (e) => e.label == v,
+                      orElse: () => FolioAiProvider.onDevice,
+                    );
+                    context.read<SettingsCubit>().setAiProvider(provider);
+                  },
+                ),
+              ),
+              if (settings.usesOnDeviceAi)
+                _SettingRow(
+                  label: AppConstants.localModelLabel,
+                  value: modelStatus,
+                  trailing: (_modelInstalled != true && !_downloading)
+                      ? const Icon(
+                          Icons.download_outlined,
+                          size: 16,
+                          color: FolioColors.textSecondary,
+                        )
+                      : null,
+                  onTap: (_modelInstalled == true || _downloading)
+                      ? null
+                      : _downloadModel,
+                ),
               _SettingRow(
                 label: 'Default format',
                 value: settings.format,
@@ -136,16 +229,17 @@ class SettingsPage extends StatelessWidget {
                 label: 'Theme',
                 value: 'Dark',
               ),
-              _SettingRow(
-                label: 'API Key',
-                value: settings.maskedApiKey,
-                trailing: const Icon(
-                  Icons.edit_outlined,
-                  size: 16,
-                  color: FolioColors.textSecondary,
+              if (!settings.usesOnDeviceAi)
+                _SettingRow(
+                  label: 'API Key',
+                  value: settings.maskedApiKey,
+                  trailing: const Icon(
+                    Icons.edit_outlined,
+                    size: 16,
+                    color: FolioColors.textSecondary,
+                  ),
+                  onTap: () => _editApiKey(context),
                 ),
-                onTap: () => _editApiKey(context),
-              ),
               const _SettingRow(
                 label: 'About',
                 value: AppConstants.appVersion,
@@ -196,11 +290,14 @@ class _SettingRow extends StatelessWidget {
                   ),
                 ),
               ),
-              Text(
-                value,
-                style: GoogleFonts.inter(
-                  fontSize: 14,
-                  color: FolioColors.textSecondary,
+              Flexible(
+                child: Text(
+                  value,
+                  textAlign: TextAlign.end,
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    color: FolioColors.textSecondary,
+                  ),
                 ),
               ),
               if (trailing != null) ...[

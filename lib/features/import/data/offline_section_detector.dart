@@ -1,3 +1,4 @@
+import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
 import 'package:nexus_chat/features/import/data/heading_topic_detector.dart';
 import 'package:nexus_chat/features/import/data/toc_refine.dart';
 import 'package:nexus_chat/features/import/data/toc_section_detector.dart';
@@ -13,14 +14,16 @@ class OfflineSectionDetector {
   final HeadingTopicDetector headings;
   final TocSectionDetector toc;
 
-  /// [resolveApiKey] is called only when offline TOC looks incomplete and
-  /// AI refine would help. Return null/empty to keep the offline result.
+  /// [ensureAiReady] is called only when offline TOC looks incomplete and
+  /// AI refine would help. Return false to keep the offline result.
   Future<TopicDetectionResult> detect({
     required String pdfPath,
     required int fromPage,
     required int toPage,
     void Function(String status)? onStatus,
-    Future<String?> Function()? resolveApiKey,
+    Future<bool> Function()? ensureAiReady,
+    FolioAiProvider aiProvider = FolioAiProvider.gemini,
+    String apiKey = '',
   }) async {
     onStatus?.call('Scanning for table of contents…');
     final lines = await headings.loadLines(
@@ -56,10 +59,13 @@ class OfflineSectionDetector {
       }
 
       onStatus?.call('Refining table of contents…');
-      final apiKey = resolveApiKey == null ? null : await resolveApiKey();
-      if (apiKey != null && apiKey.trim().isNotEmpty) {
+      final ready = ensureAiReady == null ? false : await ensureAiReady();
+      if (ready) {
         try {
-          return await FolioAiService(apiKey: apiKey).refineToc(
+          return await FolioAiService(
+            apiKey: apiKey,
+            provider: aiProvider,
+          ).refineToc(
             fromPage: fromPage,
             toPage: clampedTo,
             offlineCandidates: analysis.candidatesJson,

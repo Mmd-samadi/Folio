@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:nexus_chat/core/storage/local_store.dart';
+import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
 import 'package:nexus_chat/features/settings/domain/folio_settings.dart';
 
 class SettingsCubit extends Cubit<FolioSettings> {
@@ -26,6 +27,11 @@ class SettingsCubit extends Cubit<FolioSettings> {
 
   Future<void> setApiKey(String apiKey) async {
     emit(state.copyWith(apiKey: apiKey.trim()));
+    await _store.saveSettings(state);
+  }
+
+  Future<void> setAiProvider(FolioAiProvider provider) async {
+    emit(state.copyWith(aiProvider: provider));
     await _store.saveSettings(state);
   }
 

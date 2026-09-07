@@ -4,15 +4,24 @@ import 'dart:io';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:nexus_chat/core/constants/app_constants.dart';
+import 'package:nexus_chat/features/ai/data/local_gemma_service.dart';
+import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
 import 'package:nexus_chat/features/chat/data/api_exception.dart';
 import 'package:nexus_chat/features/chat/data/chat_history_builder.dart';
 import 'package:nexus_chat/features/chat/data/network_exception.dart';
 import 'package:nexus_chat/features/chat/domain/message_model.dart';
 
 class GeminiRepository {
-  GeminiRepository({GenerativeModel? model}) : _model = model ?? _createModel();
+  GeminiRepository({
+    GenerativeModel? model,
+    FolioAiProvider provider = FolioAiProvider.gemini,
+  })  : _provider = provider,
+        _model = provider == FolioAiProvider.onDevice
+            ? null
+            : (model ?? _createModel());
 
-  final GenerativeModel _model;
+  final FolioAiProvider _provider;
+  final GenerativeModel? _model;
 
   static GenerativeModel _createModel() {
     final apiKey = dotenv.env[AppConstants.apiKeyEnv];
@@ -33,8 +42,25 @@ class GeminiRepository {
     required String userMessage,
   }) async {
     try {
+      if (_provider == FolioAiProvider.onDevice) {
+        final buffer = StringBuffer();
+        for (final message in history) {
+          if (message.content.trim().isEmpty) continue;
+          final role =
+              message.role == MessageRole.user ? 'User' : 'Assistant';
+          buffer.writeln('$role: ${message.content.trim()}');
+        }
+        if (userMessage.trim().isNotEmpty &&
+            (history.isEmpty ||
+                history.last.content.trim() != userMessage.trim())) {
+          buffer.writeln('User: ${userMessage.trim()}');
+        }
+        buffer.writeln('Assistant:');
+        return await LocalGemmaService.instance.generate(buffer.toString());
+      }
+
       final contents = buildGeminiContents(history, userMessage);
-      final response = await _model.generateContent(contents);
+      final response = await _model!.generateContent(contents);
       return response.text?.trim() ?? '';
     } on SocketException {
       throw NetworkException(AppConstants.offlineErrorMessage);
@@ -48,7 +74,7 @@ class GeminiRepository {
       if (_isNetworkError(error)) {
         throw NetworkException(AppConstants.offlineErrorMessage);
       }
-
+      if (error is ApiException || error is NetworkException) rethrow;
       throw ApiException(AppConstants.genericErrorMessage);
     }
   }

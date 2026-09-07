@@ -218,7 +218,8 @@ class FolioSummaryErrorState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final needsKey = message.toLowerCase().contains('api key') ||
-        message.toLowerCase().contains('gemini_api_key');
+        message.toLowerCase().contains('gemini_api_key') ||
+        message.toLowerCase().contains('on-device model');
 
     return Padding(
       padding: const EdgeInsets.all(24),

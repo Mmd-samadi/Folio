@@ -215,12 +215,12 @@ class _TopicDetectPageState extends State<TopicDetectPage> {
           if (!mounted) return;
           setState(() => _loadingStatus = status);
         },
-        resolveApiKey: () async {
-          if (!mounted) return null;
-          final hasKey = await ensureFolioApiKey(context);
-          if (!mounted || !hasKey) return null;
-          return context.read<SettingsCubit>().state.apiKey;
+        ensureAiReady: () async {
+          if (!mounted) return false;
+          return ensureFolioAiReady(context);
         },
+        aiProvider: context.read<SettingsCubit>().state.aiProvider,
+        apiKey: context.read<SettingsCubit>().state.apiKey,
       );
       if (!mounted) return;
 

@@ -1,3 +1,5 @@
+import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
+
 class FolioSettings {
   const FolioSettings({
     this.format = 'Bullet',
@@ -6,6 +8,7 @@ class FolioSettings {
     this.apiKey = '',
     this.customPrompt = '',
     this.summaryTextDirection = 'ltr',
+    this.aiProvider = FolioAiProvider.onDevice,
   });
 
   final String format;
@@ -15,8 +18,11 @@ class FolioSettings {
   final String customPrompt;
   /// `ltr` or `rtl` for Summary tab text.
   final String summaryTextDirection;
+  final FolioAiProvider aiProvider;
 
   bool get hasApiKey => apiKey.trim().isNotEmpty;
+
+  bool get usesOnDeviceAi => aiProvider == FolioAiProvider.onDevice;
 
   bool get summaryIsRtl => summaryTextDirection.toLowerCase() == 'rtl';
 
@@ -34,6 +40,7 @@ class FolioSettings {
     String? apiKey,
     String? customPrompt,
     String? summaryTextDirection,
+    FolioAiProvider? aiProvider,
   }) {
     return FolioSettings(
       format: format ?? this.format,
@@ -42,6 +49,7 @@ class FolioSettings {
       apiKey: apiKey ?? this.apiKey,
       customPrompt: customPrompt ?? this.customPrompt,
       summaryTextDirection: summaryTextDirection ?? this.summaryTextDirection,
+      aiProvider: aiProvider ?? this.aiProvider,
     );
   }
 
@@ -52,6 +60,7 @@ class FolioSettings {
         'apiKey': apiKey,
         'customPrompt': customPrompt,
         'summaryTextDirection': summaryTextDirection,
+        'aiProvider': aiProvider.storageValue,
       };
 
   factory FolioSettings.fromJson(Map<String, dynamic> json) {
@@ -63,6 +72,7 @@ class FolioSettings {
       apiKey: json['apiKey'] as String? ?? '',
       customPrompt: json['customPrompt'] as String? ?? '',
       summaryTextDirection: dir == 'rtl' ? 'rtl' : 'ltr',
+      aiProvider: FolioAiProvider.fromStorage(json['aiProvider'] as String?),
     );
   }
 }

@@ -135,13 +135,14 @@ class _ReaderPageState extends State<ReaderPage> {
       return;
     }
 
-    final hasKey = await ensureFolioApiKey(context);
+    final ready = await ensureFolioAiReady(context);
     if (!mounted) return;
-    if (!hasKey) {
+    if (!ready) {
       setState(() {
         _loadingSummary = false;
-        _summaryError =
-            'GEMINI_API_KEY is missing. Add it in Settings or your .env file.';
+        _summaryError = folioAiNotReadyMessage(
+          context.read<SettingsCubit>().state.aiProvider,
+        );
       });
       return;
     }
@@ -185,6 +186,7 @@ class _ReaderPageState extends State<ReaderPage> {
         format: _format,
         length: _length,
         customPrompt: _prompt,
+        provider: settings.aiProvider,
       );
       if (!mounted) return;
       setState(() {
@@ -281,13 +283,14 @@ class _ReaderPageState extends State<ReaderPage> {
     final text = (overrideText ?? _chatController.text).trim();
     if (text.isEmpty || _loadingChat) return;
 
-    final hasKey = await ensureFolioApiKey(context);
+    final ready = await ensureFolioAiReady(context);
     if (!mounted) return;
-    if (!hasKey) {
+    if (!ready) {
       setState(() {
         _chatExpanded = true;
-        _chatError =
-            'GEMINI_API_KEY is missing. Add it in Settings or your .env file.';
+        _chatError = folioAiNotReadyMessage(
+          context.read<SettingsCubit>().state.aiProvider,
+        );
         _pendingChat = text;
       });
       return;
@@ -312,31 +315,80 @@ class _ReaderPageState extends State<ReaderPage> {
     });
 
     try {
-      final pdfBytes = await _ensurePdfBytes(session);
-      if (!mounted) return;
-      if (pdfBytes == null) {
-        setState(() {
-          _messages.add(
-            const _ChatLine(
-              isUser: false,
-              text:
-                  'Import a PDF to enable Folio answers grounded in your document.',
-            ),
-          );
-          _loadingChat = false;
-          _pendingChat = null;
-        });
-        return;
-      }
-
-      final apiKey = context.read<SettingsCubit>().state.apiKey;
-      final reply = await FolioAiService(apiKey: apiKey).askAboutPdf(
-        pdfBytes: pdfBytes,
-        question: text,
-        scope: _chatScope,
-        fromPage: session.fromPage,
-        toPage: session.toPage,
+      final settings = context.read<SettingsCubit>().state;
+      final ai = FolioAiService(
+        apiKey: settings.apiKey,
+        provider: settings.aiProvider,
       );
+      final String reply;
+
+      if (settings.usesOnDeviceAi) {
+        if (!session.hasLocalPdf) {
+          setState(() {
+            _messages.add(
+              const _ChatLine(
+                isUser: false,
+                text:
+                    'Import a PDF to enable Folio answers grounded in your document.',
+              ),
+            );
+            _loadingChat = false;
+            _pendingChat = null;
+          });
+          return;
+        }
+        final sectionText = await const SectionSummarizer().extractSectionText(
+          session.localPath!,
+          session.fromPage,
+          session.toPage,
+        );
+        if (!mounted) return;
+        if (sectionText.trim().isEmpty) {
+          setState(() {
+            _messages.add(
+              const _ChatLine(
+                isUser: false,
+                text:
+                    'Could not extract text from this section for on-device chat.',
+              ),
+            );
+            _loadingChat = false;
+            _pendingChat = null;
+          });
+          return;
+        }
+        reply = await ai.askAboutText(
+          contextText: sectionText,
+          question: text,
+          scope: _chatScope,
+          fromPage: session.fromPage,
+          toPage: session.toPage,
+        );
+      } else {
+        final pdfBytes = await _ensurePdfBytes(session);
+        if (!mounted) return;
+        if (pdfBytes == null) {
+          setState(() {
+            _messages.add(
+              const _ChatLine(
+                isUser: false,
+                text:
+                    'Import a PDF to enable Folio answers grounded in your document.',
+              ),
+            );
+            _loadingChat = false;
+            _pendingChat = null;
+          });
+          return;
+        }
+        reply = await ai.askAboutPdf(
+          pdfBytes: pdfBytes,
+          question: text,
+          scope: _chatScope,
+          fromPage: session.fromPage,
+          toPage: session.toPage,
+        );
+      }
       if (!mounted) return;
       setState(() {
         _messages.add(

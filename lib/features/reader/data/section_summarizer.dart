@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
 import 'package:nexus_chat/features/reader/data/folio_ai_service.dart';
 import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
 import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.dart';
@@ -19,6 +20,7 @@ class SectionSummarizer {
     required String format,
     required String length,
     String? customPrompt,
+    FolioAiProvider provider = FolioAiProvider.gemini,
   }) async {
     if (!session.hasLocalPdf) {
       throw StateError(
@@ -33,16 +35,23 @@ class SectionSummarizer {
     // Let the UI paint loading state before heavy work.
     await Future<void>.delayed(Duration.zero);
 
-    final ai = FolioAiService(apiKey: apiKey);
+    final ai = FolioAiService(apiKey: apiKey, provider: provider);
 
     // Prefer section text extraction (avoids uploading multi-MB PDFs).
-    final sectionText = await _extractSectionText(
+    // Required for on-device models that cannot ingest PDF bytes.
+    final sectionText = await extractSectionText(
       path,
       session.fromPage,
       session.toPage,
     );
     List<String> bullets;
-    if (sectionText.trim().length >= 200) {
+    if (sectionText.trim().length >= 200 ||
+        provider == FolioAiProvider.onDevice) {
+      if (sectionText.trim().isEmpty) {
+        throw StateError(
+          'Could not extract text from this section for on-device summarization.',
+        );
+      }
       bullets = await ai.summarizeText(
         text: sectionText,
         format: format,
@@ -65,7 +74,7 @@ class SectionSummarizer {
     return bullets;
   }
 
-  Future<String> _extractSectionText(
+  Future<String> extractSectionText(
     String path,
     int fromPage,
     int toPage,

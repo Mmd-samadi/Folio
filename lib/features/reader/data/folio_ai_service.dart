@@ -6,20 +6,31 @@ import 'dart:typed_data';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:nexus_chat/core/constants/app_constants.dart';
+import 'package:nexus_chat/features/ai/data/local_gemma_service.dart';
+import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
 import 'package:nexus_chat/features/chat/data/api_exception.dart';
 import 'package:nexus_chat/features/chat/data/network_exception.dart';
 import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
 
 class FolioAiService {
-  FolioAiService({GenerativeModel? model, String? apiKey})
-      : _model = model ?? _createModel(apiKey);
+  FolioAiService({
+    GenerativeModel? model,
+    String? apiKey,
+    FolioAiProvider provider = FolioAiProvider.gemini,
+  })  : _provider = provider,
+        _model = provider == FolioAiProvider.onDevice
+            ? null
+            : (model ?? _createModel(apiKey));
 
-  final GenerativeModel _model;
+  final FolioAiProvider _provider;
+  final GenerativeModel? _model;
 
   static const defaultPrompt =
       'Summarize the following text in bullet points. Focus on key concepts, '
       'important definitions, and actionable insights. Keep each bullet concise '
       'but informative.';
+
+  bool get usesOnDevice => _provider == FolioAiProvider.onDevice;
 
   static GenerativeModel _createModel([String? overrideKey]) {
     final fromSettings = overrideKey?.trim() ?? '';
@@ -36,6 +47,32 @@ class FolioAiService {
       model: AppConstants.geminiModel,
       apiKey: apiKey,
     );
+  }
+
+  Future<String> _completeText(String prompt) async {
+    if (usesOnDevice) {
+      return LocalGemmaService.instance.generate(prompt);
+    }
+    final response = await _model!.generateContent([Content.text(prompt)]);
+    return response.text?.trim() ?? '';
+  }
+
+  Future<String> _completeWithPdf({
+    required String prompt,
+    required Uint8List pdfBytes,
+  }) async {
+    if (usesOnDevice) {
+      throw ApiException(
+        'On-device AI cannot read PDF bytes. Use extracted text or switch to Gemini Cloud.',
+      );
+    }
+    final response = await _model!.generateContent([
+      Content.multi([
+        TextPart(prompt),
+        DataPart('application/pdf', pdfBytes),
+      ]),
+    ]);
+    return response.text?.trim() ?? '';
   }
 
   static String topicDetectionPrompt({
@@ -177,11 +214,7 @@ OUTPUT
     );
 
     try {
-      final response = await _model.generateContent([
-        Content.text(prompt),
-      ]);
-
-      final text = response.text?.trim() ?? '';
+      final text = await _completeText(prompt);
       if (text.isEmpty) {
         return TopicDetectionResult.fallback(fromPage, toPage);
       }
@@ -237,14 +270,7 @@ Return ONLY the summary lines. For Bullet format, one bullet per line without le
 ''';
 
     try {
-      final response = await _model.generateContent([
-        Content.multi([
-          TextPart(prompt),
-          DataPart('application/pdf', pdfBytes),
-        ]),
-      ]);
-
-      final text = response.text?.trim() ?? '';
+      final text = await _completeWithPdf(prompt: prompt, pdfBytes: pdfBytes);
       if (text.isEmpty) {
         throw ApiException(AppConstants.genericErrorMessage);
       }
@@ -285,8 +311,7 @@ $clipped
 ''';
 
     try {
-      final response = await _model.generateContent([Content.text(prompt)]);
-      final out = response.text?.trim() ?? '';
+      final out = await _completeText(prompt);
       if (out.isEmpty) {
         throw ApiException(AppConstants.genericErrorMessage);
       }
@@ -316,17 +341,11 @@ $clipped
     final scopeHint = scope == 'Section' && fromPage != null && toPage != null
         ? 'Answer using mainly pages $fromPage–$toPage.'
         : 'You may use the full PDF.';
+    final prompt =
+        'You are Folio, a reading assistant. $scopeHint\n\nQuestion: $question';
 
     try {
-      final response = await _model.generateContent([
-        Content.multi([
-          TextPart(
-            'You are Folio, a reading assistant. $scopeHint\n\nQuestion: $question',
-          ),
-          DataPart('application/pdf', pdfBytes),
-        ]),
-      ]);
-      return response.text?.trim() ?? '';
+      return await _completeWithPdf(prompt: prompt, pdfBytes: pdfBytes);
     } on SocketException {
       throw NetworkException(AppConstants.offlineErrorMessage);
     } on TimeoutException {
@@ -337,6 +356,49 @@ $clipped
       if (_isNetworkError(error)) {
         throw NetworkException(AppConstants.offlineErrorMessage);
       }
+      if (error is ApiException || error is NetworkException) rethrow;
+      throw ApiException(AppConstants.genericErrorMessage);
+    }
+  }
+
+  /// Text-grounded Q&A (preferred for on-device models that cannot ingest PDF bytes).
+  Future<String> askAboutText({
+    required String contextText,
+    required String question,
+    required String scope,
+    int? fromPage,
+    int? toPage,
+  }) async {
+    final scopeHint = scope == 'Section' && fromPage != null && toPage != null
+        ? 'Answer using mainly pages $fromPage–$toPage of the source.'
+        : 'You may use the full provided source.';
+    final clipped = contextText.length > 100000
+        ? contextText.substring(0, 100000)
+        : contextText;
+    final prompt = '''
+You are Folio, a reading assistant. $scopeHint
+
+SOURCE:
+$clipped
+
+Question: $question
+
+Answer clearly and concisely. If the source does not contain enough information, say so.
+''';
+
+    try {
+      return await _completeText(prompt);
+    } on SocketException {
+      throw NetworkException(AppConstants.offlineErrorMessage);
+    } on TimeoutException {
+      throw NetworkException(AppConstants.offlineErrorMessage);
+    } on GenerativeAIException catch (error) {
+      throw ApiException(error.message);
+    } catch (error) {
+      if (_isNetworkError(error)) {
+        throw NetworkException(AppConstants.offlineErrorMessage);
+      }
+      if (error is ApiException || error is NetworkException) rethrow;
       throw ApiException(AppConstants.genericErrorMessage);
     }
   }
@@ -352,14 +414,11 @@ $clipped
     }
 
     try {
-      final response = await _model.generateContent([
-        Content.multi([
-          TextPart(topicDetectionPrompt(fromPage: fromPage, toPage: toPage)),
-          DataPart('application/pdf', pdfBytes),
-        ]),
-      ]);
+      final text = await _completeWithPdf(
+        prompt: topicDetectionPrompt(fromPage: fromPage, toPage: toPage),
+        pdfBytes: pdfBytes,
+      );
 
-      final text = response.text?.trim() ?? '';
       if (text.isEmpty) {
         return TopicDetectionResult.fallback(fromPage, toPage);
       }

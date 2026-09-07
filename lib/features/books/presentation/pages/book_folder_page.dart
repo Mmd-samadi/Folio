@@ -172,11 +172,17 @@ class _BookFolderPageState extends State<BookFolderPage> {
       return;
     }
 
-    final hasKey = await ensureFolioApiKey(context);
+    final ready = await ensureFolioAiReady(context);
     if (!mounted) return;
-    if (!hasKey) {
+    if (!ready) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Add a Gemini API key to summarize.')),
+        SnackBar(
+          content: Text(
+            folioAiNotReadyMessage(
+              context.read<SettingsCubit>().state.aiProvider,
+            ),
+          ),
+        ),
       );
       return;
     }
@@ -220,6 +226,7 @@ class _BookFolderPageState extends State<BookFolderPage> {
         length: settings.length,
         customPrompt:
             settings.customPrompt.isEmpty ? null : settings.customPrompt,
+        provider: settings.aiProvider,
       );
       if (!mounted) return;
       messenger.showSnackBar(

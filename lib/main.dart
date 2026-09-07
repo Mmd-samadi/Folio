@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_gemma/flutter_gemma.dart';
+import 'package:flutter_gemma_litertlm/flutter_gemma_litertlm.dart';
+import 'package:flutter_gemma_mediapipe/flutter_gemma_mediapipe.dart';
 import 'package:nexus_chat/core/constants/app_constants.dart';
 import 'package:nexus_chat/core/router/app_router.dart';
 import 'package:nexus_chat/core/storage/local_store.dart';
@@ -15,6 +18,16 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   pdfrxFlutterInitialize();
   await dotenv.load(fileName: '.env');
+
+  const hfToken = String.fromEnvironment('HUGGINGFACE_TOKEN');
+  await FlutterGemma.initialize(
+    huggingFaceToken: hfToken.isNotEmpty ? hfToken : null,
+    inferenceEngines: const [
+      LiteRtLmEngine(),
+      MediaPipeEngine(),
+    ],
+  );
+
   final store = await LocalStore.open();
   runApp(FolioApp(store: store));
 }

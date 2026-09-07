@@ -1,9 +1,24 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- OpenCL for flutter_gemma GPU backend (optional; falls back to CPU). -->
+    <uses-native-library
+        android:name="libvndksupport.so"
+        android:required="false"/>
+    <uses-native-library
+        android:name="libOpenCL.so"
+        android:required="false"/>
+    <uses-native-library
+        android:name="libOpenCL-car.so"
+        android:required="false"/>
+    <uses-native-library
+        android:name="libOpenCL-pixel.so"
+        android:required="false"/>
     <application
         android:label="Folio"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:largeHeap="true"
+        android:extractNativeLibs="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
