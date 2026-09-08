@@ -5,7 +5,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:nexus_chat/core/constants/app_constants.dart';
 import 'package:nexus_chat/core/theme/folio_colors.dart';
 import 'package:nexus_chat/features/ai/data/local_gemma_service.dart';
+import 'package:nexus_chat/features/ai/data/on_device_model_catalog_service.dart';
 import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
+import 'package:nexus_chat/features/ai/domain/on_device_model.dart';
 import 'package:nexus_chat/features/settings/domain/folio_settings.dart';
 import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.dart';
 import 'package:nexus_chat/features/settings/presentation/widgets/api_key_gate_sheet.dart';
@@ -18,24 +20,61 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  bool? _modelInstalled;
+  Map<String, bool> _installed = {};
   bool _checkingModel = true;
-  bool _downloading = false;
+  bool _refreshingCatalog = false;
+  String? _downloadingModelId;
   int _downloadProgress = 0;
+  OnDeviceCatalogSnapshot? _catalog;
 
   @override
   void initState() {
     super.initState();
-    _refreshModelStatus();
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    final snapshot =
+        await OnDeviceModelCatalogService.instance.ensureLoaded();
+    if (!mounted) return;
+    setState(() => _catalog = snapshot);
+    await _refreshModelStatus();
   }
 
   Future<void> _refreshModelStatus() async {
-    final installed = await LocalGemmaService.instance.isInstalled();
+    final status = await LocalGemmaService.instance.installedStatusMap();
     if (!mounted) return;
     setState(() {
-      _modelInstalled = installed;
+      _installed = status;
       _checkingModel = false;
     });
+  }
+
+  Future<void> _refreshCatalog() async {
+    if (_refreshingCatalog) return;
+    setState(() => _refreshingCatalog = true);
+    try {
+      final snapshot = await OnDeviceModelCatalogService.instance.refresh();
+      if (!mounted) return;
+      setState(() => _catalog = snapshot);
+      await _refreshModelStatus();
+      if (!mounted) return;
+      final sourceLabel = switch (snapshot.source) {
+        OnDeviceCatalogSource.remote => 'Updated from network',
+        OnDeviceCatalogSource.cache => 'Loaded from cache',
+        OnDeviceCatalogSource.bundled => 'Using bundled catalog',
+      };
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(sourceLabel)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not refresh model list: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _refreshingCatalog = false);
+    }
   }
 
   Future<void> _pickOption({
@@ -110,28 +149,68 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _downloadModel() async {
+  String _statusFor(OnDeviceModel model) {
+    if (_checkingModel) return 'Checking…';
+    if (_downloadingModelId == model.id) {
+      return 'Downloading $_downloadProgress%';
+    }
+    if (_installed[model.id] == true) return 'Installed';
+    return 'Not downloaded';
+  }
+
+  String _catalogMetaLabel(OnDeviceCatalogSnapshot? catalog) {
+    if (catalog == null) return 'Loading…';
+    final source = switch (catalog.source) {
+      OnDeviceCatalogSource.remote => 'network',
+      OnDeviceCatalogSource.cache => 'cache',
+      OnDeviceCatalogSource.bundled => 'bundled',
+    };
+    return 'v${catalog.version} · $source';
+  }
+
+  Future<void> _onModelTap(OnDeviceModel model) async {
+    if (_downloadingModelId != null) return;
+
+    final alreadyInstalled = _installed[model.id] == true;
+    if (alreadyInstalled) {
+      final cubit = context.read<SettingsCubit>();
+      await cubit.setOnDeviceModelId(model.id);
+      try {
+        await LocalGemmaService.instance.ensureInstalled(model: model);
+      } catch (_) {
+        // Selection still saved; activation can retry on next generate.
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${model.label} selected.')),
+      );
+      return;
+    }
+
     setState(() {
-      _downloading = true;
+      _downloadingModelId = model.id;
       _downloadProgress = 0;
     });
+    final cubit = context.read<SettingsCubit>();
     try {
       await LocalGemmaService.instance.ensureInstalled(
+        model: model,
         onProgress: (p) {
           if (mounted) setState(() => _downloadProgress = p);
         },
       );
+      await cubit.setOnDeviceModelId(model.id);
       if (!mounted) return;
       setState(() {
-        _modelInstalled = true;
-        _downloading = false;
+        _installed = {..._installed, model.id: true};
+        _downloadingModelId = null;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('On-device model ready.')),
+        SnackBar(content: Text('${model.label} ready.')),
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _downloading = false);
+      setState(() => _downloadingModelId = null);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.toString())),
       );
@@ -140,6 +219,8 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final models = _catalog?.models ?? OnDeviceModels.catalog;
+
     return Scaffold(
       backgroundColor: FolioColors.background,
       appBar: AppBar(
@@ -151,12 +232,6 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
       body: BlocBuilder<SettingsCubit, FolioSettings>(
         builder: (context, settings) {
-          final modelStatus = _checkingModel
-              ? 'Checking…'
-              : _downloading
-                  ? 'Downloading $_downloadProgress%'
-                  : (_modelInstalled == true ? 'Installed' : 'Not downloaded');
-
           return ListView(
             children: [
               _SettingRow(
@@ -176,21 +251,69 @@ class _SettingsPageState extends State<SettingsPage> {
                   },
                 ),
               ),
-              if (settings.usesOnDeviceAi)
-                _SettingRow(
-                  label: AppConstants.localModelLabel,
-                  value: modelStatus,
-                  trailing: (_modelInstalled != true && !_downloading)
-                      ? const Icon(
-                          Icons.download_outlined,
-                          size: 16,
-                          color: FolioColors.textSecondary,
-                        )
-                      : null,
-                  onTap: (_modelInstalled == true || _downloading)
-                      ? null
-                      : _downloadModel,
+              if (settings.usesOnDeviceAi) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'On-device models',
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: FolioColors.textSecondary,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        _catalogMetaLabel(_catalog),
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          color: FolioColors.textDim,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Refresh model list',
+                        onPressed:
+                            _refreshingCatalog ? null : _refreshCatalog,
+                        icon: _refreshingCatalog
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.refresh, size: 18),
+                        color: FolioColors.textSecondary,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ],
+                  ),
                 ),
+                if (models.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                    child: Text(
+                      'No models available yet.',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        color: FolioColors.textSecondary,
+                      ),
+                    ),
+                  )
+                else
+                  for (final model in models)
+                    _ModelRow(
+                      model: model,
+                      selected: settings.onDeviceModelId == model.id,
+                      status: _statusFor(model),
+                      busy: _downloadingModelId != null,
+                      onTap: () => _onModelTap(model),
+                    ),
+              ],
               _SettingRow(
                 label: 'Default format',
                 value: settings.format,
@@ -247,6 +370,119 @@ class _SettingsPageState extends State<SettingsPage> {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _ModelRow extends StatelessWidget {
+  const _ModelRow({
+    required this.model,
+    required this.selected,
+    required this.status,
+    required this.busy,
+    required this.onTap,
+  });
+
+  final OnDeviceModel model;
+  final bool selected;
+  final String status;
+  final bool busy;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final installed = status == 'Installed';
+    return Material(
+      color: FolioColors.surface,
+      child: InkWell(
+        onTap: busy ? null : onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: const BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: FolioColors.border),
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            model.label,
+                            style: GoogleFonts.inter(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: selected
+                                  ? FolioColors.accent
+                                  : FolioColors.textPrimary,
+                            ),
+                          ),
+                        ),
+                        if (selected) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            'Active',
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: FolioColors.accent,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${model.sizeLabel} · ${model.description}',
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        height: 1.35,
+                        color: FolioColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    status,
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: FolioColors.textSecondary,
+                    ),
+                  ),
+                  if (!installed && !status.startsWith('Downloading')) ...[
+                    const SizedBox(height: 4),
+                    const Icon(
+                      Icons.download_outlined,
+                      size: 16,
+                      color: FolioColors.textSecondary,
+                    ),
+                  ],
+                  if (selected && installed)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 4),
+                      child: Icon(
+                        Icons.check,
+                        size: 16,
+                        color: FolioColors.accent,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -8,6 +8,7 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:nexus_chat/core/constants/app_constants.dart';
 import 'package:nexus_chat/features/ai/data/local_gemma_service.dart';
 import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
+import 'package:nexus_chat/features/ai/domain/on_device_model.dart';
 import 'package:nexus_chat/features/chat/data/api_exception.dart';
 import 'package:nexus_chat/features/chat/data/network_exception.dart';
 import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
@@ -17,18 +18,30 @@ class FolioAiService {
     GenerativeModel? model,
     String? apiKey,
     FolioAiProvider provider = FolioAiProvider.gemini,
+    OnDeviceModel? onDeviceModel,
   })  : _provider = provider,
+        _onDeviceModel = onDeviceModel ?? OnDeviceModels.defaultModel,
         _model = provider == FolioAiProvider.onDevice
             ? null
             : (model ?? _createModel(apiKey));
 
   final FolioAiProvider _provider;
+  final OnDeviceModel _onDeviceModel;
   final GenerativeModel? _model;
 
-  static const defaultPrompt =
-      'Summarize the following text in bullet points. Focus on key concepts, '
-      'important definitions, and actionable insights. Keep each bullet concise '
-      'but informative.';
+  static const defaultPrompt = '''
+You are Folio, a study assistant for academic and technical reading.
+
+Summarize the source for a student who will review this later without reopening the book.
+
+Rules:
+- Prefer substance over fluff: definitions, claims, methods, results, trade-offs, and caveats.
+- Preserve important technical terms; do not invent facts not present in the source.
+- If the source is unclear or incomplete, say so briefly instead of guessing.
+- Match the requested Output format and Length from the user message.
+- Do not add a title, preamble, or closing remarks — return only the summary content.
+- For Bullet format: one idea per line, no leading "- " or numbering.
+''';
 
   bool get usesOnDevice => _provider == FolioAiProvider.onDevice;
 
@@ -51,7 +64,10 @@ class FolioAiService {
 
   Future<String> _completeText(String prompt) async {
     if (usesOnDevice) {
-      return LocalGemmaService.instance.generate(prompt);
+      return LocalGemmaService.instance.generate(
+        prompt,
+        model: _onDeviceModel,
+      );
     }
     final response = await _model!.generateContent([Content.text(prompt)]);
     return response.text?.trim() ?? '';

@@ -187,6 +187,7 @@ class _ReaderPageState extends State<ReaderPage> {
         length: _length,
         customPrompt: _prompt,
         provider: settings.aiProvider,
+        onDeviceModel: settings.onDeviceModel,
       );
       if (!mounted) return;
       setState(() {
@@ -319,6 +320,7 @@ class _ReaderPageState extends State<ReaderPage> {
       final ai = FolioAiService(
         apiKey: settings.apiKey,
         provider: settings.aiProvider,
+        onDeviceModel: settings.onDeviceModel,
       );
       final String reply;
 

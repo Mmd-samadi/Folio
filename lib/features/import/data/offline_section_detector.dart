@@ -1,4 +1,5 @@
 import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
+import 'package:nexus_chat/features/ai/domain/on_device_model.dart';
 import 'package:nexus_chat/features/import/data/heading_topic_detector.dart';
 import 'package:nexus_chat/features/import/data/toc_refine.dart';
 import 'package:nexus_chat/features/import/data/toc_section_detector.dart';
@@ -23,6 +24,7 @@ class OfflineSectionDetector {
     void Function(String status)? onStatus,
     Future<bool> Function()? ensureAiReady,
     FolioAiProvider aiProvider = FolioAiProvider.gemini,
+    OnDeviceModel? onDeviceModel,
     String apiKey = '',
   }) async {
     onStatus?.call('Scanning for table of contents…');
@@ -65,6 +67,7 @@ class OfflineSectionDetector {
           return await FolioAiService(
             apiKey: apiKey,
             provider: aiProvider,
+            onDeviceModel: onDeviceModel,
           ).refineToc(
             fromPage: fromPage,
             toPage: clampedTo,

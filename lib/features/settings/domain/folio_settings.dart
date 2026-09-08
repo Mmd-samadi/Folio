@@ -1,4 +1,5 @@
 import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
+import 'package:nexus_chat/features/ai/domain/on_device_model.dart';
 
 class FolioSettings {
   const FolioSettings({
@@ -9,6 +10,7 @@ class FolioSettings {
     this.customPrompt = '',
     this.summaryTextDirection = 'ltr',
     this.aiProvider = FolioAiProvider.onDevice,
+    this.onDeviceModelId = OnDeviceModels.fallbackDefaultId,
   });
 
   final String format;
@@ -19,12 +21,15 @@ class FolioSettings {
   /// `ltr` or `rtl` for Summary tab text.
   final String summaryTextDirection;
   final FolioAiProvider aiProvider;
+  final String onDeviceModelId;
 
   bool get hasApiKey => apiKey.trim().isNotEmpty;
 
   bool get usesOnDeviceAi => aiProvider == FolioAiProvider.onDevice;
 
   bool get summaryIsRtl => summaryTextDirection.toLowerCase() == 'rtl';
+
+  OnDeviceModel get onDeviceModel => OnDeviceModels.byId(onDeviceModelId);
 
   String get maskedApiKey {
     final key = apiKey.trim();
@@ -41,6 +46,7 @@ class FolioSettings {
     String? customPrompt,
     String? summaryTextDirection,
     FolioAiProvider? aiProvider,
+    String? onDeviceModelId,
   }) {
     return FolioSettings(
       format: format ?? this.format,
@@ -50,6 +56,7 @@ class FolioSettings {
       customPrompt: customPrompt ?? this.customPrompt,
       summaryTextDirection: summaryTextDirection ?? this.summaryTextDirection,
       aiProvider: aiProvider ?? this.aiProvider,
+      onDeviceModelId: onDeviceModelId ?? this.onDeviceModelId,
     );
   }
 
@@ -61,6 +68,7 @@ class FolioSettings {
         'customPrompt': customPrompt,
         'summaryTextDirection': summaryTextDirection,
         'aiProvider': aiProvider.storageValue,
+        'onDeviceModelId': onDeviceModelId,
       };
 
   factory FolioSettings.fromJson(Map<String, dynamic> json) {
@@ -73,6 +81,12 @@ class FolioSettings {
       customPrompt: json['customPrompt'] as String? ?? '',
       summaryTextDirection: dir == 'rtl' ? 'rtl' : 'ltr',
       aiProvider: FolioAiProvider.fromStorage(json['aiProvider'] as String?),
+      onDeviceModelId: () {
+        final id = (json['onDeviceModelId'] as String?)?.trim() ?? '';
+        if (id.isEmpty) return OnDeviceModels.fallbackDefaultId;
+        if (OnDeviceModels.catalog.isEmpty) return id;
+        return OnDeviceModels.byId(id).id;
+      }(),
     );
   }
 }

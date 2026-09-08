@@ -227,6 +227,7 @@ class _BookFolderPageState extends State<BookFolderPage> {
         customPrompt:
             settings.customPrompt.isEmpty ? null : settings.customPrompt,
         provider: settings.aiProvider,
+        onDeviceModel: settings.onDeviceModel,
       );
       if (!mounted) return;
       messenger.showSnackBar(
@@ -406,7 +407,6 @@ class _BookFolderPageState extends State<BookFolderPage> {
                             job: job,
                             anyJobRunning: job != null,
                             onTap: () => _openReader(parts[i].id),
-                            onSummarize: () => _summarizePart(parts[i]),
                             onMenuSelected: (action) {
                               if (action == 'summarize') {
                                 _summarizePart(parts[i]);

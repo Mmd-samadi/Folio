@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
+import 'package:nexus_chat/features/ai/domain/on_device_model.dart';
 import 'package:nexus_chat/features/reader/data/folio_ai_service.dart';
 import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
 import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.dart';
@@ -21,6 +22,7 @@ class SectionSummarizer {
     required String length,
     String? customPrompt,
     FolioAiProvider provider = FolioAiProvider.gemini,
+    OnDeviceModel? onDeviceModel,
   }) async {
     if (!session.hasLocalPdf) {
       throw StateError(
@@ -35,7 +37,11 @@ class SectionSummarizer {
     // Let the UI paint loading state before heavy work.
     await Future<void>.delayed(Duration.zero);
 
-    final ai = FolioAiService(apiKey: apiKey, provider: provider);
+    final ai = FolioAiService(
+      apiKey: apiKey,
+      provider: provider,
+      onDeviceModel: onDeviceModel,
+    );
 
     // Prefer section text extraction (avoids uploading multi-MB PDFs).
     // Required for on-device models that cannot ingest PDF bytes.

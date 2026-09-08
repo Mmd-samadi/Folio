@@ -220,6 +220,7 @@ class _TopicDetectPageState extends State<TopicDetectPage> {
           return ensureFolioAiReady(context);
         },
         aiProvider: context.read<SettingsCubit>().state.aiProvider,
+        onDeviceModel: context.read<SettingsCubit>().state.onDeviceModel,
         apiKey: context.read<SettingsCubit>().state.apiKey,
       );
       if (!mounted) return;

@@ -8,6 +8,7 @@ import 'package:nexus_chat/core/constants/app_constants.dart';
 import 'package:nexus_chat/core/router/app_router.dart';
 import 'package:nexus_chat/core/storage/local_store.dart';
 import 'package:nexus_chat/core/theme/app_theme.dart';
+import 'package:nexus_chat/features/ai/data/on_device_model_catalog_service.dart';
 import 'package:nexus_chat/features/books/presentation/cubit/books_cubit.dart';
 import 'package:nexus_chat/features/reader/presentation/cubit/summarize_job_cubit.dart';
 import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.dart';
@@ -27,6 +28,8 @@ Future<void> main() async {
       MediaPipeEngine(),
     ],
   );
+
+  await OnDeviceModelCatalogService.instance.ensureLoaded();
 
   final store = await LocalStore.open();
   runApp(FolioApp(store: store));

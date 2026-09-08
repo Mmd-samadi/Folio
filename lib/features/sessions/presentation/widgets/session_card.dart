@@ -13,7 +13,6 @@ class SessionCard extends StatelessWidget {
     required this.session,
     required this.onTap,
     required this.onMenuSelected,
-    this.onSummarize,
     this.job,
     this.anyJobRunning = false,
   });
@@ -21,7 +20,6 @@ class SessionCard extends StatelessWidget {
   final ReadingSession session;
   final VoidCallback onTap;
   final ValueChanged<String> onMenuSelected;
-  final VoidCallback? onSummarize;
   final SummarizeJobState? job;
   final bool anyJobRunning;
 
@@ -192,35 +190,6 @@ class SessionCard extends StatelessWidget {
               if (_thisSummarizing && job != null) ...[
                 const SizedBox(height: 14),
                 _SummarizeEtaIndicator(job: job!),
-              ] else if (onSummarize != null && !session.hasSummary) ...[
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 36,
-                  child: OutlinedButton(
-                    onPressed: summarizeBlocked ? null : onSummarize,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: FolioColors.accent,
-                      side: BorderSide(
-                        color: summarizeBlocked
-                            ? FolioColors.border
-                            : FolioColors.accent,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(FolioColors.radiusButton),
-                      ),
-                    ),
-                    child: Text(
-                      summarizeBlocked
-                          ? 'Wait for other summary…'
-                          : 'Summarize',
-                      style: GoogleFonts.inter(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
               ],
             ],
           ),

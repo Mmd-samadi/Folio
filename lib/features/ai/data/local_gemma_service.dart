@@ -1,8 +1,8 @@
 import 'package:flutter_gemma/flutter_gemma.dart';
-import 'package:nexus_chat/core/constants/app_constants.dart';
+import 'package:nexus_chat/features/ai/domain/on_device_model.dart';
 import 'package:nexus_chat/features/chat/data/api_exception.dart';
 
-/// On-device LLM via flutter_gemma (Qwen3 0.6B LiteRT by default).
+/// On-device LLM via flutter_gemma (selectable LiteRT / MediaPipe models).
 class LocalGemmaService {
   LocalGemmaService._();
 
@@ -11,19 +11,38 @@ class LocalGemmaService {
   int? _downloadProgress;
   bool _installing = false;
   String? _lastError;
+  String? _installingModelId;
 
   int? get downloadProgress => _downloadProgress;
   bool get isInstalling => _installing;
   String? get lastError => _lastError;
+  String? get installingModelId => _installingModelId;
 
-  Future<bool> isInstalled() {
-    return FlutterGemma.isModelInstalled(AppConstants.localModelFileName);
+  Future<bool> isInstalled([OnDeviceModel? model]) {
+    final selected = model ?? OnDeviceModels.defaultModel;
+    return FlutterGemma.isModelInstalled(selected.fileName);
+  }
+
+  Future<Map<String, bool>> installedStatusMap() async {
+    final result = <String, bool>{};
+    for (final model in OnDeviceModels.catalog) {
+      result[model.id] = await FlutterGemma.isModelInstalled(model.fileName);
+    }
+    return result;
   }
 
   Future<void> ensureInstalled({
+    OnDeviceModel? model,
     void Function(int progress)? onProgress,
   }) async {
-    if (await isInstalled()) {
+    final selected = model ?? OnDeviceModels.defaultModel;
+    if (await isInstalled(selected)) {
+      // Re-run install to set this file as the active inference model
+      // without re-downloading (flutter_gemma skips when already present).
+      await FlutterGemma.installModel(
+        modelType: selected.modelType,
+        fileType: selected.fileType,
+      ).fromNetwork(selected.url).install();
       _downloadProgress = 100;
       return;
     }
@@ -32,16 +51,17 @@ class LocalGemmaService {
     }
 
     _installing = true;
+    _installingModelId = selected.id;
     _lastError = null;
     _downloadProgress = 0;
     onProgress?.call(0);
 
     try {
       await FlutterGemma.installModel(
-        modelType: AppConstants.localModelType,
-        fileType: AppConstants.localModelFileType,
+        modelType: selected.modelType,
+        fileType: selected.fileType,
       )
-          .fromNetwork(AppConstants.localModelUrl)
+          .fromNetwork(selected.url)
           .withProgress((progress) {
             _downloadProgress = progress;
             onProgress?.call(progress);
@@ -59,16 +79,19 @@ class LocalGemmaService {
       );
     } finally {
       _installing = false;
+      _installingModelId = null;
     }
   }
 
   Future<String> generate(
     String prompt, {
+    OnDeviceModel? model,
     String? systemInstruction,
     int maxTokens = 2048,
     int maxOutputTokens = 1024,
   }) async {
-    await ensureInstalled();
+    final selected = model ?? OnDeviceModels.defaultModel;
+    await ensureInstalled(model: selected);
 
     final backends = <PreferredBackend>[
       PreferredBackend.gpu,
@@ -77,13 +100,13 @@ class LocalGemmaService {
 
     Object? lastError;
     for (final backend in backends) {
-      InferenceModel? model;
+      InferenceModel? inference;
       try {
-        model = await FlutterGemma.getActiveModel(
+        inference = await FlutterGemma.getActiveModel(
           maxTokens: maxTokens,
           preferredBackend: backend,
         );
-        final chat = await model.createChat(
+        final chat = await inference.createChat(
           systemInstruction: systemInstruction ??
               'You are Folio, a concise reading assistant for academic PDFs.',
           maxOutputTokens: maxOutputTokens,
@@ -96,7 +119,7 @@ class LocalGemmaService {
       } catch (error) {
         lastError = error;
       } finally {
-        await model?.close();
+        await inference?.close();
       }
     }
 

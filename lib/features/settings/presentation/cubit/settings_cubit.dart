@@ -35,6 +35,11 @@ class SettingsCubit extends Cubit<FolioSettings> {
     await _store.saveSettings(state);
   }
 
+  Future<void> setOnDeviceModelId(String modelId) async {
+    emit(state.copyWith(onDeviceModelId: modelId));
+    await _store.saveSettings(state);
+  }
+
   Future<void> setCustomPrompt(String prompt) async {
     emit(state.copyWith(customPrompt: prompt));
     await _store.saveSettings(state);

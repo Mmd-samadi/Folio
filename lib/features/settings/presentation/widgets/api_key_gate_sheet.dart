@@ -7,6 +7,7 @@ import 'package:nexus_chat/core/theme/folio_colors.dart';
 import 'package:nexus_chat/core/widgets/folio_buttons.dart';
 import 'package:nexus_chat/features/ai/data/local_gemma_service.dart';
 import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
+import 'package:nexus_chat/features/ai/domain/on_device_model.dart';
 import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.dart';
 
 bool folioHasEffectiveApiKey(BuildContext context) {
@@ -23,9 +24,12 @@ Future<bool> ensureFolioAiReady(BuildContext context) async {
   final settings = context.read<SettingsCubit>().state;
   if (settings.usesOnDeviceAi) {
     final local = LocalGemmaService.instance;
-    if (await local.isInstalled()) return true;
+    if (await local.isInstalled(settings.onDeviceModel)) return true;
     if (!context.mounted) return false;
-    return showLocalModelDownloadSheet(context);
+    return showLocalModelDownloadSheet(
+      context,
+      model: settings.onDeviceModel,
+    );
   }
   return ensureFolioApiKey(context);
 }
@@ -117,8 +121,13 @@ Future<bool> ensureFolioApiKey(BuildContext context) async {
   return showApiKeyGateSheet(context);
 }
 
-/// Downloads the on-device flutter_gemma model with progress.
-Future<bool> showLocalModelDownloadSheet(BuildContext context) async {
+/// Downloads an on-device flutter_gemma model with progress.
+Future<bool> showLocalModelDownloadSheet(
+  BuildContext context, {
+  OnDeviceModel? model,
+}) async {
+  final selected =
+      model ?? context.read<SettingsCubit>().state.onDeviceModel;
   var progress = LocalGemmaService.instance.downloadProgress ?? 0;
   var error = '';
   var downloading = false;
@@ -147,7 +156,7 @@ Future<bool> showLocalModelDownloadSheet(BuildContext context) async {
                 const FolioSheetHandle(),
                 const SizedBox(height: 16),
                 Text(
-                  'Download on-device model',
+                  'Download ${selected.label}',
                   style: GoogleFonts.inter(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
@@ -155,8 +164,8 @@ Future<bool> showLocalModelDownloadSheet(BuildContext context) async {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '${AppConstants.localModelLabel} runs fully offline after a '
-                  'one-time download (~330 MB). No API key or quota.',
+                  '${selected.label} (${selected.sizeLabel}) runs fully offline '
+                  'after a one-time download. No API key or quota.',
                   style: GoogleFonts.inter(
                     fontSize: 13,
                     height: 1.45,
@@ -201,10 +210,16 @@ Future<bool> showLocalModelDownloadSheet(BuildContext context) async {
                           });
                           try {
                             await LocalGemmaService.instance.ensureInstalled(
+                              model: selected,
                               onProgress: (p) {
                                 setModalState(() => progress = p);
                               },
                             );
+                            if (context.mounted) {
+                              await context
+                                  .read<SettingsCubit>()
+                                  .setOnDeviceModelId(selected.id);
+                            }
                             if (context.mounted) {
                               Navigator.pop(context, true);
                             }
