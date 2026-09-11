@@ -2,10 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:nexus_chat/core/theme/folio_colors.dart';
-import 'package:nexus_chat/features/reader/domain/summarize_eta.dart';
-import 'package:nexus_chat/features/reader/presentation/cubit/summarize_job_cubit.dart';
-import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
+import 'package:folio/core/theme/folio_colors.dart';
+import 'package:folio/features/reader/domain/summarize_eta.dart';
+import 'package:folio/features/reader/presentation/cubit/summarize_job_cubit.dart';
+import 'package:folio/features/sessions/domain/reading_session.dart';
 
 class SessionCard extends StatelessWidget {
   const SessionCard({
@@ -15,6 +15,7 @@ class SessionCard extends StatelessWidget {
     required this.onMenuSelected,
     this.job,
     this.anyJobRunning = false,
+    this.onCancelSummarize,
   });
 
   final ReadingSession session;
@@ -22,6 +23,7 @@ class SessionCard extends StatelessWidget {
   final ValueChanged<String> onMenuSelected;
   final SummarizeJobState? job;
   final bool anyJobRunning;
+  final VoidCallback? onCancelSummarize;
 
   bool get _thisSummarizing => job?.sessionId == session.id;
 
@@ -33,7 +35,7 @@ class SessionCard extends StatelessWidget {
       color: FolioColors.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(FolioColors.radiusCard),
-        side: const BorderSide(color: FolioColors.border),
+        side: BorderSide(color: FolioColors.border),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -81,7 +83,7 @@ class SessionCard extends StatelessWidget {
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(
+                                Icon(
                                   Icons.check_circle_outline,
                                   size: 14,
                                   color: FolioColors.accent,
@@ -104,7 +106,7 @@ class SessionCard extends StatelessWidget {
                   ),
                   PopupMenuButton<String>(
                     enabled: !_thisSummarizing,
-                    icon: const Icon(
+                    icon: Icon(
                       Icons.more_vert,
                       color: FolioColors.textSecondary,
                       size: 20,
@@ -113,7 +115,7 @@ class SessionCard extends StatelessWidget {
                     shape: RoundedRectangleBorder(
                       borderRadius:
                           BorderRadius.circular(FolioColors.radiusCard),
-                      side: const BorderSide(color: FolioColors.accent),
+                      side: BorderSide(color: FolioColors.accent),
                     ),
                     onSelected: onMenuSelected,
                     itemBuilder: (context) => [
@@ -189,7 +191,10 @@ class SessionCard extends StatelessWidget {
               ),
               if (_thisSummarizing && job != null) ...[
                 const SizedBox(height: 14),
-                _SummarizeEtaIndicator(job: job!),
+                _SummarizeEtaIndicator(
+                  job: job!,
+                  onCancel: onCancelSummarize,
+                ),
               ],
             ],
           ),
@@ -200,9 +205,13 @@ class SessionCard extends StatelessWidget {
 }
 
 class _SummarizeEtaIndicator extends StatefulWidget {
-  const _SummarizeEtaIndicator({required this.job});
+  const _SummarizeEtaIndicator({
+    required this.job,
+    this.onCancel,
+  });
 
   final SummarizeJobState job;
+  final VoidCallback? onCancel;
 
   @override
   State<_SummarizeEtaIndicator> createState() => _SummarizeEtaIndicatorState();
@@ -250,7 +259,7 @@ class _SummarizeEtaIndicatorState extends State<_SummarizeEtaIndicator> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Summarizing…',
+                widget.job.cancelRequested ? 'Cancelling…' : 'Summarizing…',
                 style: GoogleFonts.inter(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -259,7 +268,9 @@ class _SummarizeEtaIndicatorState extends State<_SummarizeEtaIndicator> {
               ),
               const SizedBox(height: 2),
               Text(
-                'About ${SummarizeEta.label(eta)} · ${elapsed}s elapsed',
+                widget.job.cancelRequested
+                    ? 'Stopping this summary'
+                    : 'About ${SummarizeEta.label(eta)} · ${elapsed}s elapsed',
                 style: GoogleFonts.inter(
                   fontSize: 12,
                   color: FolioColors.textSecondary,
@@ -268,6 +279,23 @@ class _SummarizeEtaIndicatorState extends State<_SummarizeEtaIndicator> {
             ],
           ),
         ),
+        if (widget.onCancel != null && !widget.job.cancelRequested)
+          TextButton(
+            onPressed: widget.onCancel,
+            style: TextButton.styleFrom(
+              foregroundColor: FolioColors.danger,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
       ],
     );
   }

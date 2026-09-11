@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:nexus_chat/core/theme/folio_colors.dart';
+import 'package:folio/core/theme/folio_colors.dart';
 
 class FolioPrimaryButton extends StatelessWidget {
   const FolioPrimaryButton({
@@ -60,7 +60,7 @@ class FolioSecondaryButton extends StatelessWidget {
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
           foregroundColor: FolioColors.textPrimary,
-          side: const BorderSide(color: FolioColors.border),
+          side: BorderSide(color: FolioColors.border),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(FolioColors.radiusButton),
           ),

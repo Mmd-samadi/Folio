@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nexus_chat/features/import/data/heading_topic_detector.dart';
-import 'package:nexus_chat/features/reader/data/folio_ai_service.dart';
+import 'package:folio/features/import/data/heading_topic_detector.dart';
+import 'package:folio/features/reader/data/folio_ai_service.dart';
 
 void main() {
   group('HeadingTopicDetector.detectFromLines', () {

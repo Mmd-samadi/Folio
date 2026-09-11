@@ -1,8 +1,8 @@
 import 'dart:convert';
 
-import 'package:nexus_chat/features/books/domain/book.dart';
-import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
-import 'package:nexus_chat/features/settings/domain/folio_settings.dart';
+import 'package:folio/features/books/domain/book.dart';
+import 'package:folio/features/sessions/domain/reading_session.dart';
+import 'package:folio/features/settings/domain/folio_settings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class LocalStore {

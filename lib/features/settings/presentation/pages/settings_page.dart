@@ -2,15 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:nexus_chat/core/constants/app_constants.dart';
-import 'package:nexus_chat/core/theme/folio_colors.dart';
-import 'package:nexus_chat/features/ai/data/local_gemma_service.dart';
-import 'package:nexus_chat/features/ai/data/on_device_model_catalog_service.dart';
-import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
-import 'package:nexus_chat/features/ai/domain/on_device_model.dart';
-import 'package:nexus_chat/features/settings/domain/folio_settings.dart';
-import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.dart';
-import 'package:nexus_chat/features/settings/presentation/widgets/api_key_gate_sheet.dart';
+import 'package:folio/core/constants/app_constants.dart';
+import 'package:folio/core/errors/cancelled_exception.dart';
+import 'package:folio/core/theme/folio_colors.dart';
+import 'package:folio/core/theme/theme_cubit.dart';
+import 'package:folio/features/ai/data/local_gemma_service.dart';
+import 'package:folio/features/ai/data/on_device_model_catalog_service.dart';
+import 'package:folio/features/ai/domain/folio_ai_provider.dart';
+import 'package:folio/features/ai/domain/on_device_model.dart';
+import 'package:folio/features/settings/domain/folio_settings.dart';
+import 'package:folio/features/settings/presentation/cubit/settings_cubit.dart';
+import 'package:folio/features/settings/presentation/widgets/api_key_gate_sheet.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -25,6 +27,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _refreshingCatalog = false;
   String? _downloadingModelId;
   int _downloadProgress = 0;
+  bool _cancellingDownload = false;
   OnDeviceCatalogSnapshot? _catalog;
 
   @override
@@ -127,7 +130,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                   ),
                   trailing: option == current
-                      ? const Icon(Icons.check, color: FolioColors.accent)
+                      ? Icon(Icons.check, color: FolioColors.accent)
                       : null,
                   onTap: () => Navigator.pop(context, option),
                 ),
@@ -151,6 +154,9 @@ class _SettingsPageState extends State<SettingsPage> {
 
   String _statusFor(OnDeviceModel model) {
     if (_checkingModel) return 'Checking…';
+    if (_cancellingDownload && _downloadingModelId == model.id) {
+      return 'Cancelling…';
+    }
     if (_downloadingModelId == model.id) {
       return 'Downloading $_downloadProgress%';
     }
@@ -190,6 +196,7 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       _downloadingModelId = model.id;
       _downloadProgress = 0;
+      _cancellingDownload = false;
     });
     final cubit = context.read<SettingsCubit>();
     try {
@@ -204,16 +211,36 @@ class _SettingsPageState extends State<SettingsPage> {
       setState(() {
         _installed = {..._installed, model.id: true};
         _downloadingModelId = null;
+        _cancellingDownload = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${model.label} ready.')),
       );
+    } on CancelledException {
+      if (!mounted) return;
+      setState(() {
+        _downloadingModelId = null;
+        _cancellingDownload = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Download cancelled.')),
+      );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _downloadingModelId = null);
+      setState(() {
+        _downloadingModelId = null;
+        _cancellingDownload = false;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.toString())),
       );
+    }
+  }
+
+  void _cancelDownload() {
+    LocalGemmaService.instance.cancelDownload();
+    if (_downloadingModelId != null && mounted) {
+      setState(() => _cancellingDownload = true);
     }
   }
 
@@ -234,6 +261,27 @@ class _SettingsPageState extends State<SettingsPage> {
         builder: (context, settings) {
           return ListView(
             children: [
+              _SettingRow(
+                label: 'Appearance',
+                value: ThemeCubit.label(settings.themeMode),
+                onTap: () => _pickOption(
+                  context: context,
+                  title: 'Appearance',
+                  options: const ['Light', 'Dark', 'System'],
+                  current: ThemeCubit.label(settings.themeMode),
+                  onPicked: (v) async {
+                    final mode = switch (v) {
+                      'Light' => ThemeMode.light,
+                      'System' => ThemeMode.system,
+                      _ => ThemeMode.dark,
+                    };
+                    await context.read<SettingsCubit>().setThemeMode(mode);
+                    if (context.mounted) {
+                      context.read<ThemeCubit>().setMode(mode);
+                    }
+                  },
+                ),
+              ),
               _SettingRow(
                 label: 'AI provider',
                 value: settings.aiProvider.label,
@@ -311,7 +359,11 @@ class _SettingsPageState extends State<SettingsPage> {
                       selected: settings.onDeviceModelId == model.id,
                       status: _statusFor(model),
                       busy: _downloadingModelId != null,
+                      downloading: _downloadingModelId == model.id,
+                      cancelling: _cancellingDownload &&
+                          _downloadingModelId == model.id,
                       onTap: () => _onModelTap(model),
+                      onCancel: _cancelDownload,
                     ),
               ],
               _SettingRow(
@@ -356,7 +408,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 _SettingRow(
                   label: 'API Key',
                   value: settings.maskedApiKey,
-                  trailing: const Icon(
+                  trailing: Icon(
                     Icons.edit_outlined,
                     size: 16,
                     color: FolioColors.textSecondary,
@@ -381,14 +433,20 @@ class _ModelRow extends StatelessWidget {
     required this.selected,
     required this.status,
     required this.busy,
+    required this.downloading,
+    required this.cancelling,
     required this.onTap,
+    required this.onCancel,
   });
 
   final OnDeviceModel model;
   final bool selected;
   final String status;
   final bool busy;
+  final bool downloading;
+  final bool cancelling;
   final VoidCallback onTap;
+  final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -399,7 +457,7 @@ class _ModelRow extends StatelessWidget {
         onTap: busy ? null : onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             border: Border(
               bottom: BorderSide(color: FolioColors.border),
             ),
@@ -440,7 +498,7 @@ class _ModelRow extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${model.sizeLabel} · ${model.description}',
+                      '${model.resolvedDeviceTierLabel} · ${model.sizeLabel} · ${model.description}',
                       style: GoogleFonts.inter(
                         fontSize: 12,
                         height: 1.35,
@@ -461,16 +519,34 @@ class _ModelRow extends StatelessWidget {
                       color: FolioColors.textSecondary,
                     ),
                   ),
-                  if (!installed && !status.startsWith('Downloading')) ...[
+                  if (downloading && !cancelling) ...[
+                    const SizedBox(height: 6),
+                    TextButton(
+                      onPressed: onCancel,
+                      style: TextButton.styleFrom(
+                        foregroundColor: FolioColors.danger,
+                        padding: EdgeInsets.zero,
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: Text(
+                        'Cancel',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ] else if (!installed && !downloading) ...[
                     const SizedBox(height: 4),
-                    const Icon(
+                    Icon(
                       Icons.download_outlined,
                       size: 16,
                       color: FolioColors.textSecondary,
                     ),
                   ],
                   if (selected && installed)
-                    const Padding(
+                    Padding(
                       padding: EdgeInsets.only(top: 4),
                       child: Icon(
                         Icons.check,
@@ -509,7 +585,7 @@ class _SettingRow extends StatelessWidget {
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             border: Border(
               bottom: BorderSide(color: FolioColors.border),
             ),

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:nexus_chat/core/constants/app_constants.dart';
-import 'package:nexus_chat/core/theme/folio_colors.dart';
+import 'package:folio/core/constants/app_constants.dart';
+import 'package:folio/core/theme/folio_colors.dart';
 
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
@@ -38,7 +38,7 @@ class _SplashPageState extends State<SplashPage> {
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: FolioColors.border),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.menu_book_outlined,
                   size: 36,
                   color: FolioColors.accent,

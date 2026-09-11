@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:nexus_chat/core/theme/app_theme.dart';
-import 'package:nexus_chat/features/chat/domain/message_model.dart';
+import 'package:folio/core/theme/app_theme.dart';
+import 'package:folio/features/chat/domain/message_model.dart';
 
 class MessageBubble extends StatelessWidget {
   const MessageBubble({super.key, required this.message});

@@ -1,9 +1,9 @@
-import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
-import 'package:nexus_chat/features/ai/domain/on_device_model.dart';
-import 'package:nexus_chat/features/import/data/heading_topic_detector.dart';
-import 'package:nexus_chat/features/import/data/toc_refine.dart';
-import 'package:nexus_chat/features/import/data/toc_section_detector.dart';
-import 'package:nexus_chat/features/reader/data/folio_ai_service.dart';
+import 'package:folio/features/ai/domain/folio_ai_provider.dart';
+import 'package:folio/features/ai/domain/on_device_model.dart';
+import 'package:folio/features/import/data/heading_topic_detector.dart';
+import 'package:folio/features/import/data/toc_refine.dart';
+import 'package:folio/features/import/data/toc_section_detector.dart';
+import 'package:folio/features/reader/data/folio_ai_service.dart';
 
 /// TOC-first offline section builder; AI-refines incomplete TOC when possible.
 class OfflineSectionDetector {

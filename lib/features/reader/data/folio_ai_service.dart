@@ -5,13 +5,14 @@ import 'dart:typed_data';
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
-import 'package:nexus_chat/core/constants/app_constants.dart';
-import 'package:nexus_chat/features/ai/data/local_gemma_service.dart';
-import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
-import 'package:nexus_chat/features/ai/domain/on_device_model.dart';
-import 'package:nexus_chat/features/chat/data/api_exception.dart';
-import 'package:nexus_chat/features/chat/data/network_exception.dart';
-import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
+import 'package:folio/core/constants/app_constants.dart';
+import 'package:folio/core/errors/cancelled_exception.dart';
+import 'package:folio/features/ai/data/local_gemma_service.dart';
+import 'package:folio/features/ai/domain/folio_ai_provider.dart';
+import 'package:folio/features/ai/domain/on_device_model.dart';
+import 'package:folio/features/chat/data/api_exception.dart';
+import 'package:folio/features/chat/data/network_exception.dart';
+import 'package:folio/features/sessions/domain/reading_session.dart';
 
 class FolioAiService {
   FolioAiService({
@@ -62,15 +63,73 @@ Rules:
     );
   }
 
-  Future<String> _completeText(String prompt) async {
+  Future<String> _completeText(
+    String prompt, {
+    bool Function()? isCancelled,
+  }) async {
+    if (isCancelled?.call() ?? false) {
+      throw const CancelledException('Summarization cancelled.');
+    }
     if (usesOnDevice) {
       return LocalGemmaService.instance.generate(
         prompt,
         model: _onDeviceModel,
+        isCancelled: isCancelled,
       );
     }
-    final response = await _model!.generateContent([Content.text(prompt)]);
-    return response.text?.trim() ?? '';
+    return _awaitUnlessCancelled(
+      _model!.generateContent([Content.text(prompt)]).then(
+        (response) => response.text?.trim() ?? '',
+      ),
+      isCancelled: isCancelled,
+    );
+  }
+
+  /// Completes [future] unless [isCancelled] flips first (best-effort for Gemini).
+  Future<String> _awaitUnlessCancelled(
+    Future<String> future, {
+    bool Function()? isCancelled,
+  }) async {
+    if (isCancelled == null) return future;
+
+    final done = Completer<String>();
+    Timer? poll;
+
+    void completeCancel() {
+      if (!done.isCompleted) {
+        done.completeError(
+          const CancelledException('Summarization cancelled.'),
+        );
+      }
+    }
+
+    if (isCancelled()) {
+      unawaited(future.catchError((_) => ''));
+      throw const CancelledException('Summarization cancelled.');
+    }
+
+    future.then(
+      (value) {
+        if (!done.isCompleted) done.complete(value);
+      },
+      onError: (Object error, StackTrace stack) {
+        if (!done.isCompleted) done.completeError(error, stack);
+      },
+    );
+
+    poll = Timer.periodic(const Duration(milliseconds: 150), (_) {
+      if (isCancelled()) {
+        unawaited(future.catchError((_) => ''));
+        completeCancel();
+        poll?.cancel();
+      }
+    });
+
+    try {
+      return await done.future;
+    } finally {
+      poll.cancel();
+    }
   }
 
   Future<String> _completeWithPdf({
@@ -96,35 +155,43 @@ Rules:
     required int toPage,
   }) {
     return '''
-You are Folio's chapter/topic detector for academic and technical PDFs.
+You are Folio's chapter detector for academic/technical PDFs.
+Analyze ONLY pages $fromPage–$toPage of the attached PDF (inclusive).
 
 TASK
-Analyze ONLY pages $fromPage–$toPage of the attached PDF (inclusive).
-Detect section topics / headings and divide this window into contiguous reading segments.
-This window was chosen by the user to exclude front matter/TOC when possible.
-Prefer body-section headings over table-of-contents style lists.
+Split the window into contiguous CHAPTER-level reading segments.
+This is for a study app: users want whole chapters, not every subheading.
 
-HOW TO DETECT TOPICS
-Prefer visual hierarchy over body text:
-1. Large / bold / display-style headings
-2. Numbered sections (e.g. "3.1 …", "Chapter 2 …")
-3. All-caps or clearly separated title lines that introduce a new section
-Ignore: captions, running headers/footers, page numbers, footnotes, figure labels, table titles, author affiliations, references line items, and normal paragraph text.
+WHAT COUNTS AS A CHAPTER START
+Accept a new segment only when you see a strong top-level break:
+1) Explicit chapter markers: "Chapter N", "CHAPTER N", «فصل …», "Part N" (if Parts are primary)
+2) Large/bold/display title on its own, usually near the top of a page, often followed by body text
+3) Top-level numbering that restarts chapters: "1 …", "2 …" (NOT "1.1", "2.3.4")
 
-WINDOW RULES (HARD)
-- You MUST stay inside pages $fromPage–$toPage.
-- Do not invent pages outside this window.
+IGNORE (do not start a segment)
+- Subsections (1.1, 2.3, Section 3.2)
+- Running headers/footers, page numbers
+- Figure/table captions, equations, footnotes
+- Exercises, references line-items, author affiliations
+- TOC-style dotted lists ("Title …… 12") when they appear as contents pages
+- Tiny bold phrases mid-paragraph
 
 SEGMENTATION RULES
-- Produce ordered topics that cover the window without gaps or overlaps.
-- Each topic has: title, fromPage, toPage.
-- Titles: concise (3–12 words), preserve original language of the heading when possible; clean numbering noise lightly (keep "3.1 Attention" style if useful).
-- If a heading starts mid-window, that topic starts on that page.
-- If no clear heading appears for some pages, create one topic titled "Untitled section" (or a short descriptive title from content) covering those pages — do not leave gaps.
-- If the whole window is one continuous section, return a single topic spanning $fromPage–$toPage.
-- Prefer fewer, meaningful topics over noisy micro-headings. Merge tiny headings that are clearly part of the same section.
+- Prefer FEWER, meaningful chapters over noisy micro-splits.
+- If unsure whether something is a chapter or subsection → merge into the current chapter.
+- Cover the whole window with no gaps/overlaps.
+- Titles: 2–14 words, original language, keep chapter numbers when present.
+- Pages before the first clear chapter: one "Front matter" (or a short descriptive title).
+- If the whole window is one continuous unit → a single topic spanning $fromPage–$toPage.
+- If unreadable → one low-confidence topic for the full window.
 
-OUTPUT (STRICT JSON ONLY — no markdown, no prose)
+HARD RULES
+- Stay inside $fromPage–$toPage.
+- Contiguous: first.fromPage == $fromPage, last.toPage == $toPage,
+  next.fromPage == prev.toPage + 1.
+- STRICT JSON only.
+
+OUTPUT
 {
   "window": { "fromPage": $fromPage, "toPage": $toPage },
   "topics": [
@@ -136,14 +203,8 @@ OUTPUT (STRICT JSON ONLY — no markdown, no prose)
       "signal": "heading" | "numbered" | "inferred"
     }
   ],
-  "notes": "optional short note if TOC was missing or uncertain"
+  "notes": "optional short note"
 }
-
-VALIDATION BEFORE YOU ANSWER
-- topics sorted by fromPage ascending
-- for every topic: $fromPage ≤ fromPage ≤ toPage ≤ $toPage
-- topics are contiguous: first.fromPage == $fromPage, last.toPage == $toPage, and each next.fromPage == previous.toPage + 1
-- no empty titles
 
 If the PDF pages are unreadable/empty, return:
 {"window":{"fromPage":$fromPage,"toPage":$toPage},"topics":[{"title":"Untitled section","fromPage":$fromPage,"toPage":$toPage,"confidence":"low","signal":"inferred"}],"notes":"Could not read headings in this window."}
@@ -158,39 +219,63 @@ If the PDF pages are unreadable/empty, return:
     required String rawTocText,
   }) {
     return '''
-You are Folio's TOC refinement engine for technical books (PDF page indices = pdfrx 1-based).
+You are Folio's chapter segmenter for technical/academic books.
+PDF page indices are 1-based (same as pdfrx).
 
-CONTEXT
+INPUT
 - User window: pages $fromPage–$toPage (inclusive).
-- Offline parser already extracted candidate TOC entries (may be incomplete, wrong page mapping, or missing early chapters).
-- Below is the raw selectable text from likely TOC pages (may lack spaces between words; reconstruct readable titles).
-- Printed page numbers in the book may DIFFER from PDF page indices. Prefer consistency with the offline candidates' page numbers when they form a coherent increasing sequence; if printed≠PDF, map using the observed offset inferred from multiple anchors (do not invent an offset from a single entry).
-
-OFFLINE CANDIDATES (JSON)
+- Offline TOC candidates (may be incomplete, wrong pages, glued words, missing early chapters):
 $offlineCandidatesJson
-// each: { "title": string, "startPage": number }
-
-RAW TOC TEXT
+  // each: { "title": string, "startPage": number }
+- Raw selectable text from likely TOC pages (spaces may be missing; reconstruct titles):
 """
 $rawTocText
 """
 
-TASK
-1) Reconstruct the full ordered chapter/section list that the Table of Contents intends for this window.
-2) Fix missing early chapters (never collapse a large front+early-body range into a single "Untitled section" if TOC lists named chapters there).
-3) Restore spaces/punctuation in titles (e.g. "6.DecisionTrees" → "6. Decision Trees"). Keep original language.
-4) Assign absolute PDF start pages. Each section i: fromPage = start_i, toPage = start_{i+1}-1; last ends at $toPage.
-5) Include front matter only if TOC names it (Preface, Contents, Part I, …). If TOC does not name pages before the first chapter, you MAY use ONE short title such as "Front matter" (not "Untitled section") for that prefix — or split into named front-matter items when TOC lists them.
-6) Prefer chapter-level TOC entries over noisy subsection micro-entries unless the TOC clearly uses subsections as primary navigation.
-7) Do not skip chapter numbers when they appear in TOC (if TOC has 1…5 then 6, all must appear).
+GOAL
+Build a clean, contiguous chapter map for reading — ONE segment per CHAPTER (or equivalent top-level unit), not per subsection.
 
-HARD RULES
-- Stay inside $fromPage–$toPage.
-- Contiguous coverage: first.fromPage == $fromPage, last.toPage == $toPage, next.fromPage == prev.toPage+1.
-- No empty titles. Avoid the literal title "Untitled section" unless the TOC truly has no label and content is unreadable.
-- Output STRICT JSON only (no markdown).
+GRANULARITY (CRITICAL)
+- Prefer CHAPTER level only:
+  - English: "Chapter 1", "CHAPTER 3", "1 Introduction", "Part I" only if Parts are the main TOC units
+  - Numbered top-level: "1.", "2.", "3." when those are chapters
+  - Persian: «فصل ۱»، «فصل اول»، «بخش ۱»، عناوین سطح‌اول فهرست
+- EXCLUDE subsections / micro-headings unless the TOC has almost no chapter-level entries:
+  - "1.1", "1.2.3", "Section 2.3", "۳.۱", exercises, figures, tables, "Further reading"
+- Typical good count: roughly 5–40 chapters for a full book — not 80+ fragments.
+- If TOC mixes chapters and sections, KEEP chapters and DROP sections.
 
-OUTPUT
+PAGE MAPPING
+- Output pages are absolute PDF indices inside $fromPage–$toPage.
+- Printed page numbers in the book may differ from PDF indices.
+- Infer a single integer offset from MULTIPLE consistent anchors
+  (printedPage + offset = pdfPage). Never invent offset from one entry.
+- If offline candidates already form a coherent increasing PDF sequence, prefer them.
+- For each chapter i: fromPage = start_i, toPage = start_{i+1} - 1; last chapter ends at $toPage.
+- Starts must be strictly increasing.
+
+FRONT MATTER
+- Only include Preface / Contents / Acknowledgments / Part dividers if TOC names them.
+- Pages before the first real chapter: at most ONE segment titled "Front matter"
+  (or named TOC titles). Never dump early chapters into one giant "Untitled section".
+
+TITLE CLEANUP
+- Restore spaces/punctuation: "6.DecisionTrees" → "6. Decision Trees".
+- Keep original language (Persian/English/…).
+- Keep useful chapter numbers in the title.
+- Titles: 2–14 words, non-empty. Prefer TOC wording over invented labels.
+- Avoid literal "Untitled section" unless truly unknowable.
+
+HARD CONSTRAINTS
+1) Stay inside $fromPage–$toPage.
+2) Contiguous coverage, no gaps/overlaps:
+   first.fromPage == $fromPage
+   last.toPage == $toPage
+   each next.fromPage == previous.toPage + 1
+3) Do not skip chapter numbers present in TOC (if TOC has 1…5 then 6, all must appear).
+4) Output STRICT JSON only — no markdown, no commentary.
+
+OUTPUT SCHEMA
 {
   "window": { "fromPage": $fromPage, "toPage": $toPage },
   "topics": [
@@ -202,9 +287,13 @@ OUTPUT
       "signal": "toc" | "toc_inferred" | "offset_mapped"
     }
   ],
-  "notes": "short note: what was fixed (missing chapters, page offset, title cleanup)",
+  "notes": "what you fixed: missing chapters / offset / dropped subsections / title cleanup",
   "pageOffsetUsed": null
 }
+
+SELF-CHECK BEFORE ANSWERING
+- Contiguous? Chapter-level (not subsection soup)? Early chapters present?
+- Starts strictly increasing? Titles cleaned? Language preserved?
 ''';
   }
 
@@ -312,8 +401,10 @@ Return ONLY the summary lines. For Bullet format, one bullet per line without le
     required String format,
     required String length,
     String? customPrompt,
+    bool Function()? isCancelled,
   }) async {
-    final clipped = text.length > 120000 ? text.substring(0, 120000) : text;
+    final maxChars = usesOnDevice ? 2800 : 120000;
+    final clipped = text.length > maxChars ? text.substring(0, maxChars) : text;
     final prompt = '''
 ${customPrompt?.trim().isNotEmpty == true ? customPrompt!.trim() : defaultPrompt}
 
@@ -327,11 +418,13 @@ $clipped
 ''';
 
     try {
-      final out = await _completeText(prompt);
+      final out = await _completeText(prompt, isCancelled: isCancelled);
       if (out.isEmpty) {
         throw ApiException(AppConstants.genericErrorMessage);
       }
       return _parseBullets(out);
+    } on CancelledException {
+      rethrow;
     } on SocketException {
       throw NetworkException(AppConstants.offlineErrorMessage);
     } on TimeoutException {
@@ -339,6 +432,7 @@ $clipped
     } on GenerativeAIException catch (error) {
       throw ApiException(error.message);
     } catch (error) {
+      if (error is CancelledException) rethrow;
       if (_isNetworkError(error)) {
         throw NetworkException(AppConstants.offlineErrorMessage);
       }
@@ -388,8 +482,9 @@ $clipped
     final scopeHint = scope == 'Section' && fromPage != null && toPage != null
         ? 'Answer using mainly pages $fromPage–$toPage of the source.'
         : 'You may use the full provided source.';
-    final clipped = contextText.length > 100000
-        ? contextText.substring(0, 100000)
+    final maxChars = usesOnDevice ? 2800 : 100000;
+    final clipped = contextText.length > maxChars
+        ? contextText.substring(0, maxChars)
         : contextText;
     final prompt = '''
 You are Folio, a reading assistant. $scopeHint

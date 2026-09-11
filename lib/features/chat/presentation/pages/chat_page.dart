@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:nexus_chat/core/constants/app_constants.dart';
-import 'package:nexus_chat/core/theme/theme_cubit.dart';
-import 'package:nexus_chat/features/chat/data/gemini_repository.dart';
-import 'package:nexus_chat/features/chat/presentation/bloc/chat_bloc.dart';
-import 'package:nexus_chat/features/chat/presentation/bloc/chat_event.dart';
-import 'package:nexus_chat/features/chat/presentation/bloc/chat_state.dart';
-import 'package:nexus_chat/features/chat/presentation/widgets/chat_input.dart';
-import 'package:nexus_chat/features/chat/presentation/widgets/message_bubble.dart';
-import 'package:nexus_chat/features/chat/presentation/widgets/typing_indicator.dart';
+import 'package:folio/core/constants/app_constants.dart';
+import 'package:folio/core/theme/theme_cubit.dart';
+import 'package:folio/features/chat/data/gemini_repository.dart';
+import 'package:folio/features/chat/presentation/bloc/chat_bloc.dart';
+import 'package:folio/features/chat/presentation/bloc/chat_event.dart';
+import 'package:folio/features/chat/presentation/bloc/chat_state.dart';
+import 'package:folio/features/chat/presentation/widgets/chat_input.dart';
+import 'package:folio/features/chat/presentation/widgets/message_bubble.dart';
+import 'package:folio/features/chat/presentation/widgets/typing_indicator.dart';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
@@ -114,7 +114,7 @@ class _ChatPageState extends State<ChatPage> {
                   child: state.messages.isEmpty && !state.isTyping
                       ? Center(
                           child: Text(
-                            'Start a conversation with Nexus Chat',
+                            'Start a conversation with Folio',
                             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                                   color: Theme.of(context)
                                       .colorScheme

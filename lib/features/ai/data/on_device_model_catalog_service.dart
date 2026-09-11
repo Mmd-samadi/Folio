@@ -3,8 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:nexus_chat/core/constants/app_constants.dart';
-import 'package:nexus_chat/features/ai/domain/on_device_model.dart';
+import 'package:folio/core/constants/app_constants.dart';
+import 'package:folio/features/ai/domain/on_device_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Loads the on-device model list from remote JSON, disk cache, or bundled asset.

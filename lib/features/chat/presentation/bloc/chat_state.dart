@@ -1,5 +1,5 @@
 import 'package:equatable/equatable.dart';
-import 'package:nexus_chat/features/chat/domain/message_model.dart';
+import 'package:folio/features/chat/domain/message_model.dart';
 
 enum ChatStatus { initial, loading, success, failure }
 

@@ -1,5 +1,7 @@
-import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
-import 'package:nexus_chat/features/ai/domain/on_device_model.dart';
+import 'package:flutter/material.dart';
+import 'package:folio/core/theme/theme_cubit.dart';
+import 'package:folio/features/ai/domain/folio_ai_provider.dart';
+import 'package:folio/features/ai/domain/on_device_model.dart';
 
 class FolioSettings {
   const FolioSettings({
@@ -11,6 +13,7 @@ class FolioSettings {
     this.summaryTextDirection = 'ltr',
     this.aiProvider = FolioAiProvider.onDevice,
     this.onDeviceModelId = OnDeviceModels.fallbackDefaultId,
+    this.themeMode = ThemeMode.dark,
   });
 
   final String format;
@@ -22,6 +25,7 @@ class FolioSettings {
   final String summaryTextDirection;
   final FolioAiProvider aiProvider;
   final String onDeviceModelId;
+  final ThemeMode themeMode;
 
   bool get hasApiKey => apiKey.trim().isNotEmpty;
 
@@ -47,6 +51,7 @@ class FolioSettings {
     String? summaryTextDirection,
     FolioAiProvider? aiProvider,
     String? onDeviceModelId,
+    ThemeMode? themeMode,
   }) {
     return FolioSettings(
       format: format ?? this.format,
@@ -57,6 +62,7 @@ class FolioSettings {
       summaryTextDirection: summaryTextDirection ?? this.summaryTextDirection,
       aiProvider: aiProvider ?? this.aiProvider,
       onDeviceModelId: onDeviceModelId ?? this.onDeviceModelId,
+      themeMode: themeMode ?? this.themeMode,
     );
   }
 
@@ -69,6 +75,7 @@ class FolioSettings {
         'summaryTextDirection': summaryTextDirection,
         'aiProvider': aiProvider.storageValue,
         'onDeviceModelId': onDeviceModelId,
+        'themeMode': ThemeCubit.storageValue(themeMode),
       };
 
   factory FolioSettings.fromJson(Map<String, dynamic> json) {
@@ -87,6 +94,7 @@ class FolioSettings {
         if (OnDeviceModels.catalog.isEmpty) return id;
         return OnDeviceModels.byId(id).id;
       }(),
+      themeMode: ThemeCubit.parse(json['themeMode'] as String?),
     );
   }
 }

@@ -6,23 +6,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:nexus_chat/core/storage/local_store.dart';
-import 'package:nexus_chat/core/theme/folio_colors.dart';
-import 'package:nexus_chat/core/widgets/folio_buttons.dart';
-import 'package:nexus_chat/core/widgets/folio_feedback.dart';
-import 'package:nexus_chat/features/chat/data/api_exception.dart';
-import 'package:nexus_chat/features/chat/data/network_exception.dart';
-import 'package:nexus_chat/features/reader/data/folio_ai_service.dart';
-import 'package:nexus_chat/features/reader/data/section_summarizer.dart';
-import 'package:nexus_chat/features/reader/domain/section_page_range.dart';
-import 'package:nexus_chat/features/reader/domain/section_siblings.dart';
-import 'package:nexus_chat/features/reader/domain/summarize_eta.dart';
-import 'package:nexus_chat/features/reader/presentation/cubit/summarize_job_cubit.dart';
-import 'package:nexus_chat/features/reader/presentation/widgets/reader_sheets.dart';
-import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
-import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.dart';
-import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.dart';
-import 'package:nexus_chat/features/settings/presentation/widgets/api_key_gate_sheet.dart';
+import 'package:folio/core/storage/local_store.dart';
+import 'package:folio/core/errors/cancelled_exception.dart';
+import 'package:folio/core/theme/folio_colors.dart';
+import 'package:folio/core/widgets/folio_buttons.dart';
+import 'package:folio/core/widgets/folio_feedback.dart';
+import 'package:folio/features/books/domain/book.dart';
+import 'package:folio/features/books/presentation/cubit/books_cubit.dart';
+import 'package:folio/features/chat/data/api_exception.dart';
+import 'package:folio/features/chat/data/network_exception.dart';
+import 'package:folio/features/reader/data/folio_ai_service.dart';
+import 'package:folio/features/reader/data/section_summarizer.dart';
+import 'package:folio/features/reader/domain/section_page_range.dart';
+import 'package:folio/features/reader/domain/section_siblings.dart';
+import 'package:folio/features/reader/domain/summarize_eta.dart';
+import 'package:folio/features/reader/domain/summary_segment.dart';
+import 'package:folio/features/reader/presentation/cubit/summarize_job_cubit.dart';
+import 'package:folio/features/reader/presentation/widgets/reader_sheets.dart';
+import 'package:folio/features/sessions/domain/reading_session.dart';
+import 'package:folio/features/sessions/presentation/cubit/sessions_cubit.dart';
+import 'package:folio/features/settings/presentation/cubit/settings_cubit.dart';
+import 'package:folio/features/settings/presentation/widgets/api_key_gate_sheet.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 Uint8List _readPdfBytesIsolate(String path) => File(path).readAsBytesSync();
@@ -54,7 +58,6 @@ class _ReaderPageState extends State<ReaderPage> {
   var _prompt = FolioAiService.defaultPrompt;
   var _loadingSummary = false;
   var _loadingChat = false;
-  List<String> _bullets = const [];
   String? _summaryError;
   String? _chatError;
   String? _pendingChat;
@@ -63,6 +66,10 @@ class _ReaderPageState extends State<ReaderPage> {
   final _messages = <_ChatLine>[];
   final _pdfController = PdfViewerController();
   var _pageLabel = '– / –';
+  var _activeSectionTitle = '';
+  var _activeSectionId = '';
+  var _currentPdfPage = 0;
+  var _documentPageCount = 0;
 
   @override
   void initState() {
@@ -102,15 +109,7 @@ class _ReaderPageState extends State<ReaderPage> {
   Future<void> _bootstrap() async {
     final session = _findSession();
     if (session == null) return;
-
-    if (session.hasSummary) {
-      setState(() {
-        _bullets = session.summaryBullets;
-        _summaryError = null;
-        _loadingSummary = false;
-      });
-    }
-    // PDF tab uses file path; bytes load lazily for chat to avoid UI freezes.
+    // Summaries live on the Book as range segments.
   }
 
   Future<Uint8List?> _ensurePdfBytes(ReadingSession session) async {
@@ -126,12 +125,65 @@ class _ReaderPageState extends State<ReaderPage> {
     }
   }
 
-  Future<void> _summarize(ReadingSession session) async {
+  Book? _bookFor(ReadingSession session) {
+    final bookId = session.bookId;
+    if (bookId == null || bookId.isEmpty) return null;
+    return context.read<BooksCubit>().byId(bookId);
+  }
+
+  List<String> _allSummaryBullets(Book? book) {
+    if (book == null) return const [];
+    return [
+      for (final segment in book.orderedSummarySegments) ...segment.bullets,
+    ];
+  }
+
+  Future<void> _openSummarizeRange(ReadingSession session) async {
+    final pageCount = _documentPageCount > 0
+        ? _documentPageCount
+        : (_pdfController.pageCount > 0 ? _pdfController.pageCount : 0);
+    final current = _currentPdfPage > 0
+        ? _currentPdfPage
+        : (_pdfController.pageNumber ?? session.fromPage);
+    final suggestedTo = pageCount > 0
+        ? (current + 4).clamp(current, pageCount)
+        : session.toPage;
+    final request = await showSummarizeRangeSheet(
+      context,
+      initialFrom: current.clamp(1, pageCount > 0 ? pageCount : current),
+      initialTo: suggestedTo,
+      pageCount: pageCount,
+    );
+    if (request == null || !mounted) return;
+    await _summarizeRange(
+      session,
+      fromPage: request.fromPage,
+      toPage: request.toPage,
+    );
+  }
+
+  Future<void> _summarizeRange(
+    ReadingSession session, {
+    required int fromPage,
+    required int toPage,
+    String? existingSegmentId,
+  }) async {
+    final bookId = session.bookId;
+    if (bookId == null || bookId.isEmpty) {
+      setState(() {
+        _summaryError =
+            'This PDF is not linked to a book. Re-import to save range summaries.';
+      });
+      return;
+    }
+    if (!session.hasLocalPdf) {
+      setState(() => _summaryError = 'No local PDF file found.');
+      return;
+    }
+
     final jobCubit = context.read<SummarizeJobCubit>();
     if (jobCubit.isBusy) {
-      setState(() {
-        _summaryError = 'Another summary is running';
-      });
+      setState(() => _summaryError = 'Another summary is running');
       return;
     }
 
@@ -149,52 +201,62 @@ class _ReaderPageState extends State<ReaderPage> {
 
     var fileSize = 0;
     try {
-      if (session.hasLocalPdf) {
-        fileSize = await File(session.localPath!).length();
-      }
+      fileSize = await File(session.localPath!).length();
     } catch (_) {}
+    if (!mounted) {
+      jobCubit.end();
+      return;
+    }
     final eta = SummarizeEta.estimateSeconds(
-      fromPage: session.fromPage,
-      toPage: session.toPage,
+      fromPage: fromPage,
+      toPage: toPage,
       fileSizeBytes: fileSize,
     );
     final started = jobCubit.tryBegin(sessionId: session.id, etaSeconds: eta);
     if (!started) {
-      setState(() {
-        _summaryError = 'Another summary is running';
-      });
+      setState(() => _summaryError = 'Another summary is running');
       return;
     }
 
     setState(() {
       _loadingSummary = true;
       _summaryError = null;
+      _tab = _ReaderTab.summary;
     });
 
-    if (!mounted) {
-      jobCubit.end();
-      return;
-    }
-    final sessions = context.read<SessionsCubit>();
     final settings = context.read<SettingsCubit>().state;
+    final books = context.read<BooksCubit>();
 
     try {
-      final bullets = await const SectionSummarizer().summarize(
-        session: session,
-        sessions: sessions,
+      final segment = await const SectionSummarizer().summarizeRange(
+        pdfPath: session.localPath!,
+        fromPage: fromPage,
+        toPage: toPage,
         apiKey: settings.apiKey,
         format: _format,
         length: _length,
         customPrompt: _prompt,
         provider: settings.aiProvider,
         onDeviceModel: settings.onDeviceModel,
+        existingId: existingSegmentId,
+        isCancelled: () => jobCubit.isCancelRequested,
       );
       if (!mounted) return;
+      await books.upsertSummarySegment(bookId: bookId, segment: segment);
+      if (!mounted) return;
       setState(() {
-        _bullets = bullets;
         _loadingSummary = false;
         _summaryError = null;
       });
+    } on CancelledException {
+      if (!mounted) return;
+      setState(() {
+        _loadingSummary = false;
+        _summaryError = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Summarization cancelled.')),
+      );
     } on NetworkException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -224,57 +286,127 @@ class _ReaderPageState extends State<ReaderPage> {
     }
   }
 
-  void _goToSibling(ReadingSession sibling, {required int page}) {
-    context.pushReplacement(
-      '/reader/${sibling.id}',
-      extra: {
-        'tab': 'pdf',
-        'page': page,
-      },
-    );
+  Future<void> _deleteSegment(ReadingSession session, String segmentId) async {
+    final bookId = session.bookId;
+    if (bookId == null) return;
+    await context.read<BooksCubit>().deleteSummarySegment(
+          bookId: bookId,
+          segmentId: segmentId,
+        );
   }
 
-  void _onPdfPrev(ReadingSession session) {
-    final from = session.fromPage;
-    final current = _pdfController.pageNumber ?? from;
-    if (current > from) {
-      _pdfController.goToPage(pageNumber: current - 1);
-      return;
-    }
-    final siblings = SectionSiblings.orderedForBook(
+  List<ReadingSession> _bookSiblings(ReadingSession session) {
+    return SectionSiblings.orderedForBook(
       context.read<SessionsCubit>().state,
       session.bookId,
     );
-    final prev = SectionSiblings.previous(siblings, session.id);
+  }
+
+  bool _isContinuousBook(ReadingSession session) {
+    return _bookSiblings(session).length > 1;
+  }
+
+  void _onPdfPrev(ReadingSession session) {
+    final continuous = _isContinuousBook(session);
+    final lo = continuous ? 1 : session.fromPage;
+    final current = _pdfController.pageNumber ??
+        (_currentPdfPage > 0 ? _currentPdfPage : session.fromPage);
+    if (current > lo) {
+      _pdfController.goToPage(pageNumber: current - 1);
+      return;
+    }
+    if (!continuous) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('First page')),
+      );
+      return;
+    }
+    final siblings = _bookSiblings(session);
+    final activeId =
+        _activeSectionId.isNotEmpty ? _activeSectionId : session.id;
+    final prev = SectionSiblings.previous(siblings, activeId);
     if (prev == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('First section')),
       );
       return;
     }
-    _goToSibling(prev, page: prev.toPage);
+    _pdfController.goToPage(pageNumber: prev.fromPage);
   }
 
   void _onPdfNext(ReadingSession session) {
-    final from = session.fromPage;
-    final to = session.toPage;
-    final current = _pdfController.pageNumber ?? from;
-    if (current < to) {
+    final continuous = _isContinuousBook(session);
+    final hi = continuous
+        ? (_documentPageCount > 0
+            ? _documentPageCount
+            : (_pdfController.pageCount > 0
+                ? _pdfController.pageCount
+                : session.toPage))
+        : session.toPage;
+    final current = _pdfController.pageNumber ??
+        (_currentPdfPage > 0 ? _currentPdfPage : session.fromPage);
+    if (current < hi) {
       _pdfController.goToPage(pageNumber: current + 1);
       return;
     }
-    final siblings = SectionSiblings.orderedForBook(
-      context.read<SessionsCubit>().state,
-      session.bookId,
-    );
-    final next = SectionSiblings.next(siblings, session.id);
+    if (!continuous) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Last page')),
+      );
+      return;
+    }
+    final siblings = _bookSiblings(session);
+    final activeId =
+        _activeSectionId.isNotEmpty ? _activeSectionId : session.id;
+    final next = SectionSiblings.next(siblings, activeId);
     if (next == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Last section')),
       );
       return;
     }
-    _goToSibling(next, page: next.fromPage);
+    _pdfController.goToPage(pageNumber: next.fromPage);
+  }
+
+  void _syncPdfPage(ReadingSession opened, int pageNumber) {
+    final siblings = _bookSiblings(opened);
+    final continuous = siblings.length > 1;
+    final active = continuous
+        ? (SectionSiblings.atPage(siblings, pageNumber) ?? opened)
+        : opened;
+    final from = continuous ? active.fromPage : opened.fromPage;
+    final to = continuous ? active.toPage : opened.toPage;
+    final total = _pdfController.pageCount > 0
+        ? _pdfController.pageCount
+        : (continuous
+            ? siblings.map((s) => s.toPage).fold(0, (a, b) => a > b ? a : b)
+            : to);
+    final pageLabel = continuous
+        ? '$pageNumber / $total'
+        : SectionPageRange.pageLabel(pageNumber, from, to);
+
+    final titleChanged = active.title != _activeSectionTitle;
+    final idChanged = active.id != _activeSectionId;
+    final pageChanged = pageNumber != _currentPdfPage;
+    final labelChanged = pageLabel != _pageLabel;
+    final countChanged = total != _documentPageCount;
+    if (titleChanged ||
+        idChanged ||
+        pageChanged ||
+        labelChanged ||
+        countChanged) {
+      setState(() {
+        _activeSectionTitle = active.title;
+        _activeSectionId = active.id;
+        _currentPdfPage = pageNumber;
+        _pageLabel = pageLabel;
+        _documentPageCount = total;
+      });
+    }
+
+    final span = (to - from + 1).clamp(1, 999999);
+    final relative = ((pageNumber - from + 1) / span).clamp(0.0, 1.0);
+    context.read<SessionsCubit>().updateProgress(active.id, relative);
   }
 
   Future<void> _sendChat(
@@ -442,7 +574,7 @@ class _ReaderPageState extends State<ReaderPage> {
               ListTile(
                 title: Text(o),
                 trailing: o == current
-                    ? const Icon(Icons.check, color: FolioColors.accent)
+                    ? Icon(Icons.check, color: FolioColors.accent)
                     : null,
                 onTap: () => Navigator.pop(context, o),
               ),
@@ -483,7 +615,9 @@ class _ReaderPageState extends State<ReaderPage> {
         child: Column(
           children: [
             _AppBar(
-              title: session.title,
+              title: _activeSectionTitle.isNotEmpty
+                  ? _activeSectionTitle
+                  : session.title,
               onBack: () {
                 final bookId = session.bookId;
                 if (bookId != null && bookId.isNotEmpty) {
@@ -492,11 +626,14 @@ class _ReaderPageState extends State<ReaderPage> {
                   context.go('/home');
                 }
               },
-              onShare: () => showExportSheet(
-                context,
-                bullets: _bullets,
-                title: session.title,
-              ),
+              onShare: () {
+                final book = _bookFor(session);
+                showExportSheet(
+                  context,
+                  bullets: _allSummaryBullets(book),
+                  title: book?.title ?? session.title,
+                );
+              },
               onMore: () async {
                 final action = await showModalBottomSheet<String>(
                   context: context,
@@ -505,6 +642,11 @@ class _ReaderPageState extends State<ReaderPage> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        ListTile(
+                          leading: const Icon(Icons.auto_awesome_outlined),
+                          title: const Text('Summarize pages…'),
+                          onTap: () => Navigator.pop(context, 'summarize'),
+                        ),
                         ListTile(
                           leading: const Icon(Icons.edit_note_outlined),
                           title: const Text('Custom prompt'),
@@ -520,7 +662,9 @@ class _ReaderPageState extends State<ReaderPage> {
                   ),
                 );
                 if (!context.mounted) return;
-                if (action == 'prompt') {
+                if (action == 'summarize') {
+                  await _openSummarizeRange(session);
+                } else if (action == 'prompt') {
                   final next = await showPromptEditorSheet(
                     context,
                     currentPrompt: _prompt,
@@ -528,13 +672,13 @@ class _ReaderPageState extends State<ReaderPage> {
                   if (next != null && context.mounted) {
                     setState(() => _prompt = next);
                     await context.read<SettingsCubit>().setCustomPrompt(next);
-                    await _summarize(session);
                   }
                 } else if (action == 'export') {
+                  final book = _bookFor(session);
                   await showExportSheet(
                     context,
-                    bullets: _bullets,
-                    title: session.title,
+                    bullets: _allSummaryBullets(book),
+                    title: book?.title ?? session.title,
                   );
                 }
               },
@@ -556,9 +700,7 @@ class _ReaderPageState extends State<ReaderPage> {
                   current: _format,
                   onPicked: (v) async {
                     setState(() => _format = v);
-                    if (_bullets.isNotEmpty || session.hasSummary) {
-                      await _summarize(session);
-                    }
+                    await context.read<SettingsCubit>().setFormat(v);
                   },
                 ),
                 onLength: () => _pickDropdown(
@@ -567,9 +709,7 @@ class _ReaderPageState extends State<ReaderPage> {
                   current: _length,
                   onPicked: (v) async {
                     setState(() => _length = v);
-                    if (_bullets.isNotEmpty || session.hasSummary) {
-                      await _summarize(session);
-                    }
+                    await context.read<SettingsCubit>().setLength(v);
                   },
                 ),
                 onToggleDirection: () {
@@ -607,6 +747,10 @@ class _ReaderPageState extends State<ReaderPage> {
       (c) => c.state.summaryIsRtl,
     );
     final direction = isRtl ? TextDirection.rtl : TextDirection.ltr;
+    final book = context.select<BooksCubit, Book?>(
+      (c) => session.bookId == null ? null : c.byId(session.bookId!),
+    );
+    final segments = book?.orderedSummarySegments ?? const <SummarySegment>[];
 
     if (_loadingSummary) {
       return BlocBuilder<SummarizeJobCubit, SummarizeJobState?>(
@@ -615,7 +759,11 @@ class _ReaderPageState extends State<ReaderPage> {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(32),
-                child: _ReaderSummarizeEta(job: job),
+                child: _ReaderSummarizeEta(
+                  job: job,
+                  onCancel: () =>
+                      context.read<SummarizeJobCubit>().requestCancel(),
+                ),
               ),
             );
           }
@@ -624,32 +772,32 @@ class _ReaderPageState extends State<ReaderPage> {
       );
     }
 
-    if (_summaryError != null && _bullets.isEmpty) {
+    if (_summaryError != null && segments.isEmpty) {
       return FolioSummaryErrorState(
         message: _summaryError!,
-        onRegenerate: () => _summarize(session),
+        onRegenerate: () => _openSummarizeRange(session),
         onOpenApiKey: () async {
           final saved = await showApiKeyGateSheet(context, editing: true);
-          if (saved && mounted) await _summarize(session);
+          if (saved && mounted) await _openSummarizeRange(session);
         },
       );
     }
 
-    if (_bullets.isEmpty) {
+    if (segments.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
+              Icon(
                 Icons.auto_awesome_outlined,
                 size: 40,
                 color: FolioColors.accent,
               ),
               const SizedBox(height: 16),
               Text(
-                'No summary yet',
+                'No summaries yet',
                 style: GoogleFonts.inter(
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
@@ -658,7 +806,8 @@ class _ReaderPageState extends State<ReaderPage> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Generate an AI summary for pages ${session.fromPage}–${session.toPage}.',
+                'Open the PDF, then choose a page range to summarize. '
+                'Each range is saved as its own section here.',
                 textAlign: TextAlign.center,
                 style: GoogleFonts.inter(
                   fontSize: 14,
@@ -668,11 +817,11 @@ class _ReaderPageState extends State<ReaderPage> {
               ),
               const SizedBox(height: 20),
               SizedBox(
-                width: 200,
+                width: 220,
                 child: FolioPrimaryButton(
-                  label: 'Summarize',
+                  label: 'Summarize pages…',
                   onPressed: session.hasLocalPdf
-                      ? () => _summarize(session)
+                      ? () => _openSummarizeRange(session)
                       : null,
                 ),
               ),
@@ -685,41 +834,49 @@ class _ReaderPageState extends State<ReaderPage> {
     return Directionality(
       textDirection: direction,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         children: [
           if (_summaryError != null) ...[
             FolioInlineErrorBanner(
               message: _summaryError!,
-              onRetry: () => _summarize(session),
-              retryLabel: 'Regenerate',
+              onRetry: () => _openSummarizeRange(session),
+              retryLabel: 'Try again',
             ),
             const SizedBox(height: 16),
           ],
-          if (!session.hasLocalPdf)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                'This session has no local PDF. Import a file to generate live summaries.',
-                style: GoogleFonts.inter(
-                  fontSize: 12,
-                  color: FolioColors.textSecondary,
-                ),
-              ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: session.hasLocalPdf
+                  ? () => _openSummarizeRange(session)
+                  : null,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Summarize more pages'),
             ),
-          for (var i = 0; i < _bullets.length; i++) ...[
-            if (i > 0) const SizedBox(height: 16),
-            InkWell(
-              onLongPress: () {
+          ),
+          const SizedBox(height: 8),
+          for (final segment in segments) ...[
+            _SummarySegmentCard(
+              segment: segment,
+              isRtl: isRtl,
+              onRegenerate: () => _summarizeRange(
+                session,
+                fromPage: segment.fromPage,
+                toPage: segment.toPage,
+                existingSegmentId: segment.id,
+              ),
+              onDelete: () => _deleteSegment(session, segment.id),
+              onAnnotate: (quote) {
                 final store = context.read<LocalStore>();
                 final messenger = ScaffoldMessenger.of(context);
                 showAnnotationSheet(
                   context,
-                  quote: _bullets[i],
+                  quote: quote,
                   onSave: (note) async {
                     await store.addAnnotation(
                       SessionAnnotation(
                         sessionId: session.id,
-                        quote: _bullets[i],
+                        quote: quote,
                         note: note,
                         createdAt: DateTime.now(),
                       ),
@@ -737,33 +894,8 @@ class _ReaderPageState extends State<ReaderPage> {
                   },
                 );
               },
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    margin: const EdgeInsets.only(top: 7),
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: FolioColors.accent,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      _bullets[i],
-                      textAlign: isRtl ? TextAlign.right : TextAlign.left,
-                      style: GoogleFonts.inter(
-                        fontSize: 14,
-                        height: 1.6,
-                        color: FolioColors.textPrimary,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
             ),
+            const SizedBox(height: 20),
           ],
         ],
       ),
@@ -775,55 +907,48 @@ class _ReaderPageState extends State<ReaderPage> {
       return const _PdfTabStub();
     }
 
+    final continuous = _isContinuousBook(session);
     final from = session.fromPage;
     final to = session.toPage;
     final preferred = widget.initialPage;
-    final initial = SectionPageRange.clampPage(
-      preferred ?? from,
-      from,
-      to,
-    );
+    final initial = continuous
+        ? (preferred ?? from).clamp(1, 999999)
+        : SectionPageRange.clampPage(preferred ?? from, from, to);
+    final viewerKey = continuous
+        ? 'pdf-book-${session.bookId}-${session.localPath}'
+        : 'pdf-${session.id}-$initial';
+    final sectionTitle = _activeSectionTitle.isNotEmpty
+        ? _activeSectionTitle
+        : session.title;
+    final pageText = _pageLabel == '– / –'
+        ? (continuous
+            ? '$initial'
+            : SectionPageRange.pageLabel(initial, from, to))
+        : _pageLabel;
 
     return Column(
       children: [
         Expanded(
           child: PdfViewer.file(
             session.localPath!,
-            key: ValueKey('pdf-${session.id}-$initial'),
+            key: ValueKey(viewerKey),
             controller: _pdfController,
             initialPageNumber: initial,
             params: PdfViewerParams(
               backgroundColor: FolioColors.background,
-              layoutPages: (pages, params) => SectionPageRange.layoutPagesOnly(
-                pages: pages,
-                params: params,
-                fromPage: from,
-                toPage: to,
-              ),
+              layoutPages: continuous
+                  ? null
+                  : (pages, params) => SectionPageRange.layoutPagesOnly(
+                        pages: pages,
+                        params: params,
+                        fromPage: from,
+                        toPage: to,
+                      ),
               onPageChanged: (pageNumber) {
                 if (pageNumber == null) return;
-                // Attempting to leave past end → next section.
-                if (pageNumber > to) {
-                  final siblings = SectionSiblings.orderedForBook(
-                    context.read<SessionsCubit>().state,
-                    session.bookId,
-                  );
-                  final next = SectionSiblings.next(siblings, session.id);
-                  if (next != null) {
-                    _goToSibling(next, page: next.fromPage);
-                    return;
-                  }
-                }
-                if (pageNumber < from) {
-                  final siblings = SectionSiblings.orderedForBook(
-                    context.read<SessionsCubit>().state,
-                    session.bookId,
-                  );
-                  final prev = SectionSiblings.previous(siblings, session.id);
-                  if (prev != null) {
-                    _goToSibling(prev, page: prev.toPage);
-                    return;
-                  }
+                if (continuous) {
+                  _syncPdfPage(session, pageNumber);
+                  return;
                 }
                 final clamped =
                     SectionPageRange.clampPage(pageNumber, from, to);
@@ -831,15 +956,7 @@ class _ReaderPageState extends State<ReaderPage> {
                   _pdfController.goToPage(pageNumber: clamped);
                   return;
                 }
-                setState(() {
-                  _pageLabel = SectionPageRange.pageLabel(clamped, from, to);
-                });
-                final span = (to - from + 1).clamp(1, 999999);
-                final relative =
-                    ((clamped - from + 1) / span).clamp(0.0, 1.0);
-                context
-                    .read<SessionsCubit>()
-                    .updateProgress(session.id, relative);
+                _syncPdfPage(session, clamped);
               },
             ),
           ),
@@ -873,25 +990,44 @@ class _ReaderPageState extends State<ReaderPage> {
                   Icons.chevron_right,
                   onTap: () => _onPdfNext(session),
                 ),
-                const Spacer(),
-                Text(
-                  _pageLabel == '– / –'
-                      ? SectionPageRange.pageLabel(initial, from, to)
-                      : _pageLabel,
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (continuous)
+                        Text(
+                          sectionTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.end,
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: FolioColors.textSecondary,
+                          ),
+                        ),
+                      Text(
+                        pageText,
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 8),
                 _ZoomBtn(
                   Icons.fit_screen_outlined,
                   onTap: () {
-                    final page = SectionPageRange.clampPage(
-                      _pdfController.pageNumber ?? from,
-                      from,
-                      to,
-                    );
+                    final page = continuous
+                        ? (_pdfController.pageNumber ?? initial)
+                        : SectionPageRange.clampPage(
+                            _pdfController.pageNumber ?? from,
+                            from,
+                            to,
+                          );
                     _pdfController.goToPage(pageNumber: page);
                   },
                 ),
@@ -905,6 +1041,100 @@ class _ReaderPageState extends State<ReaderPage> {
 }
 
 enum _ReaderTab { summary, pdf }
+
+class _SummarySegmentCard extends StatelessWidget {
+  const _SummarySegmentCard({
+    required this.segment,
+    required this.isRtl,
+    required this.onRegenerate,
+    required this.onDelete,
+    required this.onAnnotate,
+  });
+
+  final SummarySegment segment;
+  final bool isRtl;
+  final VoidCallback onRegenerate;
+  final VoidCallback onDelete;
+  final ValueChanged<String> onAnnotate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: FolioColors.surface,
+        borderRadius: BorderRadius.circular(FolioColors.radiusCard),
+        border: Border.all(color: FolioColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  segment.pageRangeLabel,
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: FolioColors.textPrimary,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Regenerate',
+                onPressed: onRegenerate,
+                icon: const Icon(Icons.refresh, size: 18),
+                color: FolioColors.textSecondary,
+                visualDensity: VisualDensity.compact,
+              ),
+              IconButton(
+                tooltip: 'Delete',
+                onPressed: onDelete,
+                icon: const Icon(Icons.delete_outline, size: 18),
+                color: FolioColors.textSecondary,
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          for (var i = 0; i < segment.bullets.length; i++) ...[
+            if (i > 0) const SizedBox(height: 12),
+            InkWell(
+              onLongPress: () => onAnnotate(segment.bullets[i]),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 7),
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: FolioColors.accent,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      segment.bullets[i],
+                      textAlign: isRtl ? TextAlign.right : TextAlign.left,
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        height: 1.6,
+                        color: FolioColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
 
 class _AppBar extends StatelessWidget {
   const _AppBar({
@@ -924,7 +1154,7 @@ class _AppBar extends StatelessWidget {
     return Container(
       height: 56,
       padding: const EdgeInsets.symmetric(horizontal: 8),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: FolioColors.border)),
       ),
       child: Row(
@@ -1049,7 +1279,7 @@ class _FormatBar extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 4),
-              const Icon(
+              Icon(
                 Icons.keyboard_arrow_down,
                 size: 16,
                 color: FolioColors.textSecondary,
@@ -1128,7 +1358,7 @@ class _ChatPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: FolioColors.surface,
         borderRadius: BorderRadius.vertical(
           top: Radius.circular(FolioColors.radiusSheet),
@@ -1166,7 +1396,7 @@ class _ChatPanel extends StatelessWidget {
                     if (expanded)
                       _ScopeToggle(scope: scope, onChanged: onScopeChanged)
                     else
-                      const Icon(
+                      Icon(
                         Icons.keyboard_arrow_up,
                         color: FolioColors.textSecondary,
                       ),
@@ -1247,11 +1477,11 @@ class _ChatPanel extends StatelessWidget {
                       ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(20),
-                        borderSide: const BorderSide(color: FolioColors.border),
+                        borderSide: BorderSide(color: FolioColors.border),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(20),
-                        borderSide: const BorderSide(color: FolioColors.border),
+                        borderSide: BorderSide(color: FolioColors.border),
                       ),
                     ),
                     onSubmitted: loading ? null : (_) => onSend(),
@@ -1266,7 +1496,7 @@ class _ChatPanel extends StatelessWidget {
                   child: InkWell(
                     customBorder: const CircleBorder(),
                     onTap: loading ? null : onSend,
-                    child: const SizedBox(
+                    child: SizedBox(
                       width: 40,
                       height: 40,
                       child: Icon(
@@ -1349,7 +1579,7 @@ class _PdfTabStub extends StatelessWidget {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: FolioColors.border),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.picture_as_pdf_outlined,
               color: FolioColors.accent,
             ),
@@ -1380,9 +1610,13 @@ class _PdfTabStub extends StatelessWidget {
 }
 
 class _ReaderSummarizeEta extends StatefulWidget {
-  const _ReaderSummarizeEta({required this.job});
+  const _ReaderSummarizeEta({
+    required this.job,
+    required this.onCancel,
+  });
 
   final SummarizeJobState job;
+  final VoidCallback onCancel;
 
   @override
   State<_ReaderSummarizeEta> createState() => _ReaderSummarizeEtaState();
@@ -1427,7 +1661,7 @@ class _ReaderSummarizeEtaState extends State<_ReaderSummarizeEta> {
         ),
         const SizedBox(height: 16),
         Text(
-          'Summarizing…',
+          widget.job.cancelRequested ? 'Cancelling…' : 'Summarizing…',
           style: GoogleFonts.inter(
             fontSize: 16,
             fontWeight: FontWeight.w600,
@@ -1436,10 +1670,20 @@ class _ReaderSummarizeEtaState extends State<_ReaderSummarizeEta> {
         ),
         const SizedBox(height: 6),
         Text(
-          'About ${SummarizeEta.label(eta)} · ${elapsed}s elapsed',
+          widget.job.cancelRequested
+              ? 'Stopping this summary'
+              : 'About ${SummarizeEta.label(eta)} · ${elapsed}s elapsed',
           style: GoogleFonts.inter(
             fontSize: 13,
             color: FolioColors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: 160,
+          child: FolioSecondaryButton(
+            label: 'Cancel',
+            onPressed: widget.job.cancelRequested ? null : widget.onCancel,
           ),
         ),
       ],

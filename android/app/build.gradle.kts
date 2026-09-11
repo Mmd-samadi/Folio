@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.nexus_chat"
+    namespace = "app.folio.reader"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -16,7 +16,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.nexus_chat"
+        applicationId = "app.folio.reader"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // flutter_gemma LiteRT-LM needs API 30+ on Android.

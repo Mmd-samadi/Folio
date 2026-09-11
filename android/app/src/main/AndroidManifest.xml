@@ -4,8 +4,9 @@
         android:label="Folio"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:largeHeap="true">
-        <!-- OpenCL for flutter_gemma GPU backend (optional; falls back to CPU). -->
+        android:largeHeap="true"
+        android:extractNativeLibs="true">
+        <!-- OpenCL for flutter_gemma (declared for compatibility; inference uses CPU). -->
         <uses-native-library
             android:name="libvndksupport.so"
             android:required="false"/>

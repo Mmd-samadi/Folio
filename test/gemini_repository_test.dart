@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
-import 'package:nexus_chat/features/chat/data/chat_history_builder.dart';
-import 'package:nexus_chat/features/chat/domain/message_model.dart';
+import 'package:folio/features/chat/data/chat_history_builder.dart';
+import 'package:folio/features/chat/domain/message_model.dart';
 
 void main() {
   group('buildGeminiContents', () {

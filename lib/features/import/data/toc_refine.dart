@@ -1,5 +1,5 @@
-import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
-import 'package:nexus_chat/features/reader/data/folio_ai_service.dart';
+import 'package:folio/features/sessions/domain/reading_session.dart';
+import 'package:folio/features/reader/data/folio_ai_service.dart';
 
 /// Heuristics for when offline TOC results should be refined by AI.
 abstract final class TocRefine {

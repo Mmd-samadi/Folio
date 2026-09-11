@@ -1,5 +1,5 @@
-name: nexus_chat
-description: "Nexus Chat — Gemini-powered chatbot app."
+name: folio
+description: "Folio — study assistant for academic PDFs."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev

@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:nexus_chat/core/theme/folio_colors.dart';
-import 'package:nexus_chat/features/books/domain/book.dart';
+import 'package:folio/core/theme/folio_colors.dart';
+import 'package:folio/features/books/domain/book.dart';
 
 /// Cover thumbnail: PDF page-1 image, or Folio branded placeholder.
 class BookCover extends StatelessWidget {
@@ -70,7 +70,7 @@ class _Placeholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -89,7 +89,7 @@ class _Placeholder extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(
+                Icon(
                   Icons.menu_book_rounded,
                   color: FolioColors.accent,
                   size: 36,

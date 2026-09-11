@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:nexus_chat/core/theme/folio_colors.dart';
-import 'package:nexus_chat/core/widgets/folio_buttons.dart';
-import 'package:nexus_chat/features/reader/data/folio_ai_service.dart';
+import 'package:folio/core/theme/folio_colors.dart';
+import 'package:folio/core/widgets/folio_buttons.dart';
+import 'package:folio/features/reader/data/folio_ai_service.dart';
 import 'package:share_plus/share_plus.dart';
 
 Future<void> showAnnotationSheet(
@@ -172,7 +172,7 @@ Future<String?> showPromptEditorSheet(
                 const SizedBox(width: 12),
                 Expanded(
                   child: FolioPrimaryButton(
-                    label: 'Apply & Re-summarize',
+                    label: 'Save prompt',
                     height: 44,
                     onPressed: () =>
                         Navigator.pop(context, controller.text.trim()),
@@ -324,6 +324,155 @@ Future<void> showExportSheet(
                   ),
                 ],
               ),
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+class SummarizeRangeRequest {
+  const SummarizeRangeRequest({required this.fromPage, required this.toPage});
+
+  final int fromPage;
+  final int toPage;
+}
+
+/// Ask the user which PDF pages to summarize.
+Future<SummarizeRangeRequest?> showSummarizeRangeSheet(
+  BuildContext context, {
+  required int initialFrom,
+  required int initialTo,
+  required int pageCount,
+}) {
+  final fromController = TextEditingController(text: '$initialFrom');
+  final toController = TextEditingController(text: '$initialTo');
+  String? error;
+
+  return showModalBottomSheet<SummarizeRangeRequest>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: FolioColors.surface,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(FolioColors.radiusSheet),
+      ),
+    ),
+    builder: (context) {
+      final bottom = MediaQuery.viewInsetsOf(context).bottom;
+      return StatefulBuilder(
+        builder: (context, setModalState) {
+          return Padding(
+            padding: EdgeInsets.fromLTRB(24, 12, 24, 24 + bottom),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const FolioSheetHandle(),
+                const SizedBox(height: 16),
+                Text(
+                  'Summarize pages',
+                  style: GoogleFonts.inter(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Pick a page range from the PDF. Smaller ranges work better '
+                  'with on-device models.',
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    height: 1.4,
+                    color: FolioColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: fromController,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        decoration: const InputDecoration(labelText: 'From'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: toController,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        decoration: const InputDecoration(labelText: 'To'),
+                      ),
+                    ),
+                  ],
+                ),
+                if (pageCount > 0) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'PDF has $pageCount pages',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: FolioColors.textDim,
+                    ),
+                  ),
+                ],
+                if (error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    error!,
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: FolioColors.danger,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FolioSecondaryButton(
+                        label: 'Cancel',
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FolioPrimaryButton(
+                        label: 'Summarize',
+                        height: 44,
+                        onPressed: () {
+                          final from = int.tryParse(fromController.text.trim());
+                          final to = int.tryParse(toController.text.trim());
+                          if (from == null || to == null || from < 1 || to < from) {
+                            setModalState(() {
+                              error = 'Enter a valid from–to range.';
+                            });
+                            return;
+                          }
+                          if (pageCount > 0 && to > pageCount) {
+                            setModalState(() {
+                              error = 'To page cannot exceed $pageCount.';
+                            });
+                            return;
+                          }
+                          Navigator.pop(
+                            context,
+                            SummarizeRangeRequest(fromPage: from, toPage: to),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           );
         },

@@ -3,11 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:nexus_chat/core/theme/folio_colors.dart';
-import 'package:nexus_chat/core/widgets/folio_buttons.dart';
-import 'package:nexus_chat/features/books/domain/book.dart';
-import 'package:nexus_chat/features/books/presentation/cubit/books_cubit.dart';
-import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
+import 'package:folio/core/theme/folio_colors.dart';
+import 'package:folio/core/widgets/folio_buttons.dart';
+import 'package:folio/features/books/domain/book.dart';
+import 'package:folio/features/books/presentation/cubit/books_cubit.dart';
+import 'package:folio/features/sessions/domain/reading_session.dart';
 
 class ManualRangePage extends StatefulWidget {
   const ManualRangePage({
@@ -282,7 +282,7 @@ class _ManualRangePageState extends State<ManualRangePage> {
                     onPressed: _createSessions,
                   ),
                   const SizedBox(height: 16),
-                  const Divider(color: FolioColors.border),
+                  Divider(color: FolioColors.border),
                   const SizedBox(height: 12),
                   TextButton(
                     onPressed: () => _addCurrentRange(requireValid: true),
@@ -339,7 +339,7 @@ class _PageField extends StatelessWidget {
             fontSize: 16,
             color: FolioColors.textPrimary,
           ),
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             filled: true,
             fillColor: FolioColors.surfaceElevated,
           ),

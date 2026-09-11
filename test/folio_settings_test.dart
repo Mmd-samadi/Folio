@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nexus_chat/features/settings/domain/folio_settings.dart';
+import 'package:folio/features/settings/domain/folio_settings.dart';
 
 void main() {
   group('FolioSettings summaryTextDirection', () {

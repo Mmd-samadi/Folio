@@ -12,6 +12,8 @@ class OnDeviceModel {
     required this.fileType,
     this.description = '',
     this.needsAuth = false,
+    this.minRamGb = 6,
+    this.deviceTierLabel = '',
   });
 
   final String id;
@@ -23,6 +25,14 @@ class OnDeviceModel {
   final ModelFileType fileType;
   final String description;
   final bool needsAuth;
+  final int minRamGb;
+  final String deviceTierLabel;
+
+  String get resolvedDeviceTierLabel {
+    final custom = deviceTierLabel.trim();
+    if (custom.isNotEmpty) return custom;
+    return '$minRamGb GB+ phones';
+  }
 
   factory OnDeviceModel.fromJson(Map<String, dynamic> json) {
     final modelType = _parseModelType(json['modelType'] as String?);
@@ -41,6 +51,14 @@ class OnDeviceModel {
       throw const FormatException('Model missing required fields');
     }
 
+    final minRam = () {
+      final raw = json['minRamGb'];
+      if (raw is int) return raw;
+      if (raw is num) return raw.toInt();
+      if (raw is String) return int.tryParse(raw.trim()) ?? 6;
+      return 6;
+    }();
+
     return OnDeviceModel(
       id: id,
       label: label,
@@ -51,6 +69,8 @@ class OnDeviceModel {
       fileType: fileType,
       description: (json['description'] as String?)?.trim() ?? '',
       needsAuth: json['needsAuth'] == true,
+      minRamGb: minRam,
+      deviceTierLabel: (json['deviceTierLabel'] as String?)?.trim() ?? '',
     );
   }
 
@@ -64,6 +84,8 @@ class OnDeviceModel {
         'fileType': fileType.name,
         'description': description,
         'needsAuth': needsAuth,
+        'minRamGb': minRamGb,
+        'deviceTierLabel': deviceTierLabel,
       };
 
   static ModelType? _parseModelType(String? raw) {

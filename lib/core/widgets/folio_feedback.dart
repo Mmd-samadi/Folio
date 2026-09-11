@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:nexus_chat/core/theme/folio_colors.dart';
-import 'package:nexus_chat/core/widgets/folio_buttons.dart';
+import 'package:folio/core/theme/folio_colors.dart';
+import 'package:folio/core/widgets/folio_buttons.dart';
 
 /// Skeleton placeholders for summary loading state.
 class FolioSummarySkeleton extends StatelessWidget {
@@ -44,7 +44,7 @@ class _SkeletonBullet extends StatelessWidget {
           margin: const EdgeInsets.only(top: 6),
           width: 8,
           height: 8,
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: FolioColors.border,
             shape: BoxShape.circle,
           ),
@@ -174,7 +174,7 @@ class FolioInlineErrorBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.wifi_off_rounded, color: FolioColors.offlineText, size: 18),
+          Icon(Icons.wifi_off_rounded, color: FolioColors.offlineText, size: 18),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -234,7 +234,7 @@ class FolioSummaryErrorState extends StatelessWidget {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: FolioColors.border),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.auto_awesome_outlined,
               color: FolioColors.accent,
             ),

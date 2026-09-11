@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:nexus_chat/core/theme/folio_colors.dart';
-import 'package:nexus_chat/features/books/domain/book.dart';
-import 'package:nexus_chat/features/books/presentation/widgets/book_cover.dart';
+import 'package:folio/core/theme/folio_colors.dart';
+import 'package:folio/features/books/domain/book.dart';
+import 'package:folio/features/books/presentation/widgets/book_cover.dart';
 
 class BookCard extends StatelessWidget {
   const BookCard({
@@ -30,7 +30,7 @@ class BookCard extends StatelessWidget {
       color: FolioColors.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(FolioColors.radiusCard),
-        side: const BorderSide(color: FolioColors.border),
+        side: BorderSide(color: FolioColors.border),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -87,7 +87,7 @@ class BookCard extends StatelessWidget {
                 ),
               ),
               PopupMenuButton<String>(
-                icon: const Icon(
+                icon: Icon(
                   Icons.more_vert,
                   color: FolioColors.textSecondary,
                   size: 20,
@@ -95,7 +95,7 @@ class BookCard extends StatelessWidget {
                 color: FolioColors.surface,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(FolioColors.radiusCard),
-                  side: const BorderSide(color: FolioColors.accent),
+                  side: BorderSide(color: FolioColors.accent),
                 ),
                 onSelected: onMenuSelected,
                 itemBuilder: (context) => [

@@ -1,10 +1,10 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:nexus_chat/features/chat/data/api_exception.dart';
-import 'package:nexus_chat/features/chat/data/gemini_repository.dart';
-import 'package:nexus_chat/features/chat/data/network_exception.dart';
-import 'package:nexus_chat/features/chat/domain/message_model.dart';
-import 'package:nexus_chat/features/chat/presentation/bloc/chat_event.dart';
-import 'package:nexus_chat/features/chat/presentation/bloc/chat_state.dart';
+import 'package:folio/features/chat/data/api_exception.dart';
+import 'package:folio/features/chat/data/gemini_repository.dart';
+import 'package:folio/features/chat/data/network_exception.dart';
+import 'package:folio/features/chat/domain/message_model.dart';
+import 'package:folio/features/chat/presentation/bloc/chat_event.dart';
+import 'package:folio/features/chat/presentation/bloc/chat_state.dart';
 
 class ChatBloc extends Bloc<ChatEvent, ChatState> {
   ChatBloc({required this.repository}) : super(const ChatState()) {

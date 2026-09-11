@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nexus_chat/core/storage/local_store.dart';
-import 'package:nexus_chat/features/books/domain/book.dart';
-import 'package:nexus_chat/features/books/presentation/cubit/books_cubit.dart';
-import 'package:nexus_chat/features/import/data/pdf_import_service.dart';
-import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
-import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.dart';
+import 'package:folio/core/storage/local_store.dart';
+import 'package:folio/features/books/domain/book.dart';
+import 'package:folio/features/books/presentation/cubit/books_cubit.dart';
+import 'package:folio/features/import/data/pdf_import_service.dart';
+import 'package:folio/features/sessions/domain/reading_session.dart';
+import 'package:folio/features/sessions/presentation/cubit/sessions_cubit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

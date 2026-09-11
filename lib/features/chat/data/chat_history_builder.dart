@@ -1,5 +1,5 @@
 import 'package:google_generative_ai/google_generative_ai.dart';
-import 'package:nexus_chat/features/chat/domain/message_model.dart';
+import 'package:folio/features/chat/domain/message_model.dart';
 
 List<Content> buildGeminiContents(
   List<MessageModel> history,

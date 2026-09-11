@@ -5,12 +5,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:nexus_chat/core/theme/folio_colors.dart';
-import 'package:nexus_chat/core/widgets/folio_buttons.dart';
-import 'package:nexus_chat/features/chat/data/api_exception.dart';
-import 'package:nexus_chat/features/import/data/offline_section_detector.dart';
-import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.dart';
-import 'package:nexus_chat/features/settings/presentation/widgets/api_key_gate_sheet.dart';
+import 'package:folio/core/theme/folio_colors.dart';
+import 'package:folio/core/widgets/folio_buttons.dart';
+import 'package:folio/features/chat/data/api_exception.dart';
+import 'package:folio/features/import/data/offline_section_detector.dart';
+import 'package:folio/features/settings/presentation/cubit/settings_cubit.dart';
+import 'package:folio/features/settings/presentation/widgets/api_key_gate_sheet.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 /// Pick a page range (or entire book) while previewing the PDF, then detect headings.
@@ -342,7 +342,7 @@ class _ScanningOverlay extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(
+            SizedBox(
               width: 36,
               height: 36,
               child: CircularProgressIndicator(
@@ -550,7 +550,7 @@ class _RangePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: FolioColors.surface,
         borderRadius: BorderRadius.vertical(
           top: Radius.circular(FolioColors.radiusSheet),
@@ -753,7 +753,7 @@ class _PageField extends StatelessWidget {
             fontSize: 16,
             color: FolioColors.textPrimary,
           ),
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             filled: true,
             fillColor: FolioColors.surfaceElevated,
             isDense: true,

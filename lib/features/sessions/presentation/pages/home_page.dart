@@ -5,16 +5,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:nexus_chat/core/constants/app_constants.dart';
-import 'package:nexus_chat/core/theme/folio_colors.dart';
-import 'package:nexus_chat/core/widgets/folio_buttons.dart';
-import 'package:nexus_chat/features/books/domain/book.dart';
-import 'package:nexus_chat/features/books/presentation/cubit/books_cubit.dart';
-import 'package:nexus_chat/features/books/presentation/widgets/book_card.dart';
-import 'package:nexus_chat/features/import/data/pdf_import_service.dart';
-import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
-import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.dart';
-import 'package:nexus_chat/features/sessions/presentation/widgets/import_pdf_sheet.dart';
+import 'package:folio/core/constants/app_constants.dart';
+import 'package:folio/core/theme/folio_colors.dart';
+import 'package:folio/core/widgets/folio_buttons.dart';
+import 'package:folio/features/books/domain/book.dart';
+import 'package:folio/features/books/presentation/cubit/books_cubit.dart';
+import 'package:folio/features/books/presentation/widgets/book_card.dart';
+import 'package:folio/features/import/data/pdf_import_service.dart';
+import 'package:folio/features/sessions/domain/reading_session.dart';
+import 'package:folio/features/sessions/presentation/cubit/sessions_cubit.dart';
+import 'package:folio/features/sessions/presentation/widgets/import_pdf_sheet.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -243,7 +243,7 @@ class _HomePageState extends State<HomePage> {
                       ],
                     ),
             ),
-            const Divider(height: 1, color: FolioColors.border),
+            Divider(height: 1, color: FolioColors.border),
             if (_offline)
               Material(
                 color: FolioColors.offlineBg,
@@ -359,7 +359,7 @@ class _HomePageState extends State<HomePage> {
           return FloatingActionButton(
             onPressed: _openImport,
             backgroundColor: FolioColors.accent,
-            child: const Icon(Icons.add, color: FolioColors.onAccent),
+            child: Icon(Icons.add, color: FolioColors.onAccent),
           );
         },
       ),
@@ -387,7 +387,7 @@ class _EmptyState extends StatelessWidget {
               borderRadius: BorderRadius.circular(24),
               border: Border.all(color: FolioColors.border),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.menu_book_outlined,
               size: 40,
               color: FolioColors.accent,

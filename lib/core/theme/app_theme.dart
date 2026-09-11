@@ -1,94 +1,109 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:nexus_chat/core/theme/folio_colors.dart';
+import 'package:folio/core/theme/folio_colors.dart';
 
 class AppTheme {
   AppTheme._();
 
-  // Kept for existing chat widgets (reader chat will reuse later).
-  static const userBubbleLight = FolioColors.accent;
-  static const userBubbleDark = FolioColors.accent;
-  static const assistantBubbleLight = FolioColors.surfaceElevated;
-  static const assistantBubbleDark = FolioColors.surfaceElevated;
+  static const userBubbleLight = Color(0xFF6C63FF);
+  static const userBubbleDark = Color(0xFF6C63FF);
+  static const assistantBubbleLight = Color(0xFFF3F3F5);
+  static const assistantBubbleDark = Color(0xFF1E1E1E);
 
-  static ThemeData get darkTheme {
-    final baseText = GoogleFonts.interTextTheme(ThemeData.dark().textTheme);
+  static ThemeData get darkTheme => _build(FolioPalette.dark, Brightness.dark);
+
+  static ThemeData get lightTheme =>
+      _build(FolioPalette.light, Brightness.light);
+
+  static ThemeData _build(FolioPalette palette, Brightness brightness) {
+    final baseText = GoogleFonts.interTextTheme(
+      brightness == Brightness.dark
+          ? ThemeData.dark().textTheme
+          : ThemeData.light().textTheme,
+    );
 
     return ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
-      scaffoldBackgroundColor: FolioColors.background,
-      colorScheme: const ColorScheme.dark(
-        primary: FolioColors.accent,
-        onPrimary: FolioColors.onAccent,
-        secondary: FolioColors.accent,
-        surface: FolioColors.surface,
-        onSurface: FolioColors.textPrimary,
-        error: FolioColors.danger,
-        outline: FolioColors.border,
+      brightness: brightness,
+      scaffoldBackgroundColor: palette.background,
+      extensions: [palette],
+      colorScheme: ColorScheme(
+        brightness: brightness,
+        primary: palette.accent,
+        onPrimary: palette.onAccent,
+        secondary: palette.accent,
+        onSecondary: palette.onAccent,
+        surface: palette.surface,
+        onSurface: palette.textPrimary,
+        error: palette.danger,
+        onError: palette.onAccent,
+        outline: palette.border,
       ),
       textTheme: baseText.apply(
-        bodyColor: FolioColors.textPrimary,
-        displayColor: FolioColors.textPrimary,
+        bodyColor: palette.textPrimary,
+        displayColor: palette.textPrimary,
       ),
       appBarTheme: AppBarTheme(
-        backgroundColor: FolioColors.background,
-        foregroundColor: FolioColors.textPrimary,
+        backgroundColor: palette.background,
+        foregroundColor: palette.textPrimary,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
-        systemOverlayStyle: SystemUiOverlayStyle.light,
+        systemOverlayStyle: brightness == Brightness.dark
+            ? SystemUiOverlayStyle.light
+            : SystemUiOverlayStyle.dark,
         titleTextStyle: GoogleFonts.inter(
           fontSize: 18,
           fontWeight: FontWeight.w600,
-          color: FolioColors.textPrimary,
+          color: palette.textPrimary,
         ),
       ),
-      dividerTheme: const DividerThemeData(
-        color: FolioColors.border,
+      dividerTheme: DividerThemeData(
+        color: palette.border,
         thickness: 1,
         space: 1,
       ),
-      floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        backgroundColor: FolioColors.accent,
-        foregroundColor: FolioColors.onAccent,
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: palette.accent,
+        foregroundColor: palette.onAccent,
         elevation: 4,
-        shape: CircleBorder(),
+        shape: const CircleBorder(),
       ),
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: FolioColors.surfaceElevated,
+        backgroundColor: palette.surfaceElevated,
         contentTextStyle: GoogleFonts.inter(
-          color: FolioColors.textPrimary,
+          color: palette.textPrimary,
           fontSize: 14,
         ),
-        actionTextColor: FolioColors.accent,
+        actionTextColor: palette.accent,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: FolioColors.surfaceElevated,
+        fillColor: palette.surfaceElevated,
         hintStyle: GoogleFonts.inter(
-          color: FolioColors.textDim,
+          color: palette.textDim,
           fontSize: 14,
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(FolioColors.radiusButton),
-          borderSide: const BorderSide(color: FolioColors.border),
+          borderSide: BorderSide(color: palette.border),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(FolioColors.radiusButton),
-          borderSide: const BorderSide(color: FolioColors.border),
+          borderSide: BorderSide(color: palette.border),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(FolioColors.radiusButton),
-          borderSide: const BorderSide(color: FolioColors.accent, width: 1.5),
+          borderSide: BorderSide(color: palette.accent, width: 1.5),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       ),
-      bottomSheetTheme: const BottomSheetThemeData(
-        backgroundColor: FolioColors.surface,
-        modalBackgroundColor: FolioColors.surface,
-        shape: RoundedRectangleBorder(
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: palette.surface,
+        modalBackgroundColor: palette.surface,
+        shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(
             top: Radius.circular(FolioColors.radiusSheet),
           ),

@@ -4,20 +4,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:nexus_chat/core/theme/folio_colors.dart';
-import 'package:nexus_chat/features/books/domain/book.dart';
-import 'package:nexus_chat/features/books/presentation/cubit/books_cubit.dart';
-import 'package:nexus_chat/features/books/presentation/widgets/book_cover.dart';
-import 'package:nexus_chat/features/chat/data/api_exception.dart';
-import 'package:nexus_chat/features/chat/data/network_exception.dart';
-import 'package:nexus_chat/features/reader/data/section_summarizer.dart';
-import 'package:nexus_chat/features/reader/domain/summarize_eta.dart';
-import 'package:nexus_chat/features/reader/presentation/cubit/summarize_job_cubit.dart';
-import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
-import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.dart';
-import 'package:nexus_chat/features/sessions/presentation/widgets/session_card.dart';
-import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.dart';
-import 'package:nexus_chat/features/settings/presentation/widgets/api_key_gate_sheet.dart';
+import 'package:folio/core/theme/folio_colors.dart';
+import 'package:folio/core/errors/cancelled_exception.dart';
+import 'package:folio/features/books/domain/book.dart';
+import 'package:folio/features/books/presentation/cubit/books_cubit.dart';
+import 'package:folio/features/books/presentation/widgets/book_cover.dart';
+import 'package:folio/features/chat/data/api_exception.dart';
+import 'package:folio/features/chat/data/network_exception.dart';
+import 'package:folio/features/reader/data/section_summarizer.dart';
+import 'package:folio/features/reader/domain/summarize_eta.dart';
+import 'package:folio/features/reader/presentation/cubit/summarize_job_cubit.dart';
+import 'package:folio/features/sessions/domain/reading_session.dart';
+import 'package:folio/features/sessions/presentation/cubit/sessions_cubit.dart';
+import 'package:folio/features/sessions/presentation/widgets/session_card.dart';
+import 'package:folio/features/settings/presentation/cubit/settings_cubit.dart';
+import 'package:folio/features/settings/presentation/widgets/api_key_gate_sheet.dart';
 
 class BookFolderPage extends StatefulWidget {
   const BookFolderPage({super.key, required this.bookId});
@@ -228,12 +229,19 @@ class _BookFolderPageState extends State<BookFolderPage> {
             settings.customPrompt.isEmpty ? null : settings.customPrompt,
         provider: settings.aiProvider,
         onDeviceModel: settings.onDeviceModel,
+        books: context.read<BooksCubit>(),
+        isCancelled: () => jobCubit.isCancelRequested,
       );
       if (!mounted) return;
       messenger.showSnackBar(
         SnackBar(
           content: Text(force ? 'Summary updated' : 'Summary saved'),
         ),
+      );
+    } on CancelledException {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Summarization cancelled.')),
       );
     } on NetworkException catch (e) {
       if (!mounted) return;
@@ -407,6 +415,11 @@ class _BookFolderPageState extends State<BookFolderPage> {
                             job: job,
                             anyJobRunning: job != null,
                             onTap: () => _openReader(parts[i].id),
+                            onCancelSummarize: job?.sessionId == parts[i].id
+                                ? () => context
+                                    .read<SummarizeJobCubit>()
+                                    .requestCancel()
+                                : null,
                             onMenuSelected: (action) {
                               if (action == 'summarize') {
                                 _summarizePart(parts[i]);

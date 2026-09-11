@@ -1,4 +1,4 @@
-import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
+import 'package:folio/features/sessions/domain/reading_session.dart';
 
 /// Ordered siblings within a book for PDF section handoff.
 abstract final class SectionSiblings {
@@ -35,5 +35,17 @@ abstract final class SectionSiblings {
     final i = indexOf(ordered, sessionId);
     if (i <= 0) return null;
     return ordered[i - 1];
+  }
+
+  /// Section whose inclusive page range contains [page], or the nearest
+  /// preceding section if [page] falls in a gap / past the last end.
+  static ReadingSession? atPage(List<ReadingSession> ordered, int page) {
+    if (ordered.isEmpty || page < 1) return null;
+    ReadingSession? preceding;
+    for (final s in ordered) {
+      if (page >= s.fromPage && page <= s.toPage) return s;
+      if (s.fromPage <= page) preceding = s;
+    }
+    return preceding ?? ordered.first;
   }
 }

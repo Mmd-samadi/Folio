@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:nexus_chat/core/theme/app_theme.dart';
+import 'package:folio/core/theme/app_theme.dart';
 
 class TypingIndicator extends StatefulWidget {
   const TypingIndicator({super.key});

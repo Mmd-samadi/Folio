@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "defaultId": "qwen3-0.6b",
   "models": [
     {
@@ -11,7 +11,9 @@
       "modelType": "qwen3",
       "fileType": "litertlm",
       "description": "Fast & light. Good default for phones.",
-      "needsAuth": false
+      "needsAuth": false,
+      "minRamGb": 4,
+      "deviceTierLabel": "4GB+ phones"
     },
     {
       "id": "smollm-135m",
@@ -22,7 +24,9 @@
       "modelType": "general",
       "fileType": "task",
       "description": "Ultra-light; lower quality, smallest download.",
-      "needsAuth": false
+      "needsAuth": false,
+      "minRamGb": 4,
+      "deviceTierLabel": "4GB+ phones"
     },
     {
       "id": "functiongemma-270m",
@@ -33,7 +37,9 @@
       "modelType": "functionGemma",
       "fileType": "litertlm",
       "description": "Tiny model tuned for structured tool-style replies.",
-      "needsAuth": false
+      "needsAuth": false,
+      "minRamGb": 4,
+      "deviceTierLabel": "4GB+ phones"
     },
     {
       "id": "qwen25-0.5b",
@@ -44,7 +50,9 @@
       "modelType": "qwen",
       "fileType": "task",
       "description": "Compact instruct model via MediaPipe.",
-      "needsAuth": false
+      "needsAuth": false,
+      "minRamGb": 4,
+      "deviceTierLabel": "4GB+ phones"
     },
     {
       "id": "qwen25-1.5b",
@@ -55,7 +63,9 @@
       "modelType": "qwen",
       "fileType": "task",
       "description": "Stronger summaries; needs more storage/RAM.",
-      "needsAuth": false
+      "needsAuth": false,
+      "minRamGb": 6,
+      "deviceTierLabel": "6GB+ phones"
     },
     {
       "id": "deepseek-r1-1.5b",
@@ -66,7 +76,9 @@
       "modelType": "deepSeek",
       "fileType": "task",
       "description": "Reasoning-oriented distill for tougher questions.",
-      "needsAuth": false
+      "needsAuth": false,
+      "minRamGb": 6,
+      "deviceTierLabel": "6GB+ phones"
     },
     {
       "id": "smollm3-3b",
@@ -77,7 +89,9 @@
       "modelType": "general",
       "fileType": "litertlm",
       "description": "Multilingual small LLM with reasoning mode.",
-      "needsAuth": false
+      "needsAuth": false,
+      "minRamGb": 8,
+      "deviceTierLabel": "8GB+ phones"
     },
     {
       "id": "gemma4-e2b",
@@ -88,7 +102,9 @@
       "modelType": "gemma4",
       "fileType": "litertlm",
       "description": "Higher quality; larger download, no HF token.",
-      "needsAuth": false
+      "needsAuth": false,
+      "minRamGb": 8,
+      "deviceTierLabel": "8GB+ phones"
     },
     {
       "id": "phi4-mini-reasoning",
@@ -99,7 +115,9 @@
       "modelType": "general",
       "fileType": "litertlm",
       "description": "Step-by-step reasoning for harder study questions.",
-      "needsAuth": false
+      "needsAuth": false,
+      "minRamGb": 8,
+      "deviceTierLabel": "8GB+ phones"
     },
     {
       "id": "gemma4-e4b",
@@ -110,7 +128,9 @@
       "modelType": "gemma4",
       "fileType": "litertlm",
       "description": "Strongest public Gemma 4 build; needs more RAM.",
-      "needsAuth": false
+      "needsAuth": false,
+      "minRamGb": 12,
+      "deviceTierLabel": "12GB+ phones"
     },
     {
       "id": "phi4-mini-instruct",
@@ -121,7 +141,9 @@
       "modelType": "general",
       "fileType": "task",
       "description": "High-quality instruct model for long summaries.",
-      "needsAuth": false
+      "needsAuth": false,
+      "minRamGb": 12,
+      "deviceTierLabel": "12GB+ phones"
     }
   ]
 }

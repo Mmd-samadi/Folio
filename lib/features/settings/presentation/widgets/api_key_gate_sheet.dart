@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:nexus_chat/core/constants/app_constants.dart';
-import 'package:nexus_chat/core/theme/folio_colors.dart';
-import 'package:nexus_chat/core/widgets/folio_buttons.dart';
-import 'package:nexus_chat/features/ai/data/local_gemma_service.dart';
-import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
-import 'package:nexus_chat/features/ai/domain/on_device_model.dart';
-import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.dart';
+import 'package:folio/core/constants/app_constants.dart';
+import 'package:folio/core/errors/cancelled_exception.dart';
+import 'package:folio/core/theme/folio_colors.dart';
+import 'package:folio/core/widgets/folio_buttons.dart';
+import 'package:folio/features/ai/data/local_gemma_service.dart';
+import 'package:folio/features/ai/domain/folio_ai_provider.dart';
+import 'package:folio/features/ai/domain/on_device_model.dart';
+import 'package:folio/features/settings/presentation/cubit/settings_cubit.dart';
 
 bool folioHasEffectiveApiKey(BuildContext context) {
   final fromSettings = context.read<SettingsCubit>().state.apiKey.trim();
@@ -131,6 +132,7 @@ Future<bool> showLocalModelDownloadSheet(
   var progress = LocalGemmaService.instance.downloadProgress ?? 0;
   var error = '';
   var downloading = false;
+  var cancelling = false;
 
   final saved = await showModalBottomSheet<bool>(
     context: context,
@@ -175,13 +177,17 @@ Future<bool> showLocalModelDownloadSheet(
                 const SizedBox(height: 16),
                 if (downloading) ...[
                   LinearProgressIndicator(
-                    value: progress <= 0 ? null : progress / 100,
+                    value: cancelling
+                        ? null
+                        : (progress <= 0 ? null : progress / 100),
                     color: FolioColors.accent,
                     backgroundColor: FolioColors.border,
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    progress <= 0 ? 'Starting…' : '$progress%',
+                    cancelling
+                        ? 'Cancelling…'
+                        : (progress <= 0 ? 'Starting…' : '$progress%'),
                     style: GoogleFonts.inter(
                       fontSize: 13,
                       color: FolioColors.textSecondary,
@@ -199,12 +205,15 @@ Future<bool> showLocalModelDownloadSheet(
                   const SizedBox(height: 12),
                 ],
                 FolioPrimaryButton(
-                  label: downloading ? 'Downloading…' : 'Download & continue',
+                  label: downloading
+                      ? (cancelling ? 'Cancelling…' : 'Downloading…')
+                      : 'Download & continue',
                   onPressed: downloading
                       ? null
                       : () async {
                           setModalState(() {
                             downloading = true;
+                            cancelling = false;
                             error = '';
                             progress = 0;
                           });
@@ -212,7 +221,9 @@ Future<bool> showLocalModelDownloadSheet(
                             await LocalGemmaService.instance.ensureInstalled(
                               model: selected,
                               onProgress: (p) {
-                                setModalState(() => progress = p);
+                                if (!cancelling) {
+                                  setModalState(() => progress = p);
+                                }
                               },
                             );
                             if (context.mounted) {
@@ -223,9 +234,20 @@ Future<bool> showLocalModelDownloadSheet(
                             if (context.mounted) {
                               Navigator.pop(context, true);
                             }
+                          } on CancelledException {
+                            setModalState(() {
+                              downloading = false;
+                              cancelling = false;
+                              error = '';
+                              progress = 0;
+                            });
+                            if (context.mounted) {
+                              Navigator.pop(context, false);
+                            }
                           } catch (e) {
                             setModalState(() {
                               downloading = false;
+                              cancelling = false;
                               error = e.toString();
                             });
                           }
@@ -233,10 +255,19 @@ Future<bool> showLocalModelDownloadSheet(
                 ),
                 const SizedBox(height: 8),
                 FolioSecondaryButton(
-                  label: 'Cancel',
-                  onPressed: downloading
+                  label: downloading
+                      ? (cancelling ? 'Cancelling…' : 'Cancel download')
+                      : 'Cancel',
+                  onPressed: cancelling
                       ? null
-                      : () => Navigator.pop(context, false),
+                      : () {
+                          if (downloading) {
+                            LocalGemmaService.instance.cancelDownload();
+                            setModalState(() => cancelling = true);
+                            return;
+                          }
+                          Navigator.pop(context, false);
+                        },
                 ),
               ],
             ),

@@ -1,11 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:nexus_chat/core/storage/local_store.dart';
-import 'package:nexus_chat/features/books/domain/book.dart';
-import 'package:nexus_chat/features/import/data/pdf_import_service.dart';
-import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
-import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.dart';
+import 'package:folio/core/storage/local_store.dart';
+import 'package:folio/features/books/domain/book.dart';
+import 'package:folio/features/import/data/pdf_import_service.dart';
+import 'package:folio/features/reader/domain/summary_segment.dart';
+import 'package:folio/features/sessions/domain/reading_session.dart';
+import 'package:folio/features/sessions/presentation/cubit/sessions_cubit.dart';
 
 class BooksCubit extends Cubit<List<Book>> {
   BooksCubit({
@@ -117,6 +118,47 @@ class BooksCubit extends Cubit<List<Book>> {
       for (final b in state)
         if (b.id == id)
           b.copyWith(title: trimmed, updatedAt: DateTime.now())
+        else
+          b,
+    ]);
+    await _persist();
+  }
+
+  Future<void> upsertSummarySegment({
+    required String bookId,
+    required SummarySegment segment,
+  }) async {
+    emit([
+      for (final b in state)
+        if (b.id == bookId)
+          b.copyWith(
+            summarySegments: [
+              for (final s in b.summarySegments)
+                if (s.id != segment.id) s,
+              segment,
+            ],
+            updatedAt: DateTime.now(),
+          )
+        else
+          b,
+    ]);
+    await _persist();
+  }
+
+  Future<void> deleteSummarySegment({
+    required String bookId,
+    required String segmentId,
+  }) async {
+    emit([
+      for (final b in state)
+        if (b.id == bookId)
+          b.copyWith(
+            summarySegments: [
+              for (final s in b.summarySegments)
+                if (s.id != segmentId) s,
+            ],
+            updatedAt: DateTime.now(),
+          )
         else
           b,
     ]);

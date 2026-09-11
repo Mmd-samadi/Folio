@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nexus_chat/core/router/app_router.dart';
-import 'package:nexus_chat/core/storage/local_store.dart';
-import 'package:nexus_chat/core/theme/app_theme.dart';
-import 'package:nexus_chat/features/books/presentation/cubit/books_cubit.dart';
-import 'package:nexus_chat/features/reader/presentation/cubit/summarize_job_cubit.dart';
-import 'package:nexus_chat/features/sessions/presentation/cubit/sessions_cubit.dart';
-import 'package:nexus_chat/features/settings/presentation/cubit/settings_cubit.dart';
+import 'package:folio/core/router/app_router.dart';
+import 'package:folio/core/storage/local_store.dart';
+import 'package:folio/core/theme/app_theme.dart';
+import 'package:folio/features/books/presentation/cubit/books_cubit.dart';
+import 'package:folio/features/reader/presentation/cubit/summarize_job_cubit.dart';
+import 'package:folio/features/sessions/presentation/cubit/sessions_cubit.dart';
+import 'package:folio/features/settings/presentation/cubit/settings_cubit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:nexus_chat/core/theme/folio_colors.dart';
-import 'package:nexus_chat/core/widgets/folio_buttons.dart';
+import 'package:folio/core/theme/folio_colors.dart';
+import 'package:folio/core/widgets/folio_buttons.dart';
 
 Future<void> showImportPdfSheet(
   BuildContext context, {
@@ -56,7 +56,7 @@ Future<void> showImportPdfSheet(
                             shape: BoxShape.circle,
                             border: Border.all(color: FolioColors.border),
                           ),
-                          child: const Icon(
+                          child: Icon(
                             Icons.upload_outlined,
                             color: FolioColors.textPrimary,
                             size: 22,

@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:nexus_chat/core/theme/folio_colors.dart';
-import 'package:nexus_chat/core/widgets/folio_buttons.dart';
-import 'package:nexus_chat/features/books/domain/book.dart';
-import 'package:nexus_chat/features/books/presentation/cubit/books_cubit.dart';
-import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
+import 'package:folio/core/theme/folio_colors.dart';
+import 'package:folio/core/widgets/folio_buttons.dart';
+import 'package:folio/features/books/domain/book.dart';
+import 'package:folio/features/books/presentation/cubit/books_cubit.dart';
+import 'package:folio/features/sessions/domain/reading_session.dart';
 
 /// Shown when TOC cannot be detected — redirects to manual range.
 class ChapterEmptyPage extends StatelessWidget {
@@ -78,7 +78,7 @@ class ChapterEmptyPage extends StatelessWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.warning_amber_rounded,
                       color: FolioColors.warningText,
                     ),
@@ -289,7 +289,7 @@ class _ChapterFoundPageState extends State<ChapterFoundPage> {
                     shape: RoundedRectangleBorder(
                       borderRadius:
                           BorderRadius.circular(FolioColors.radiusCard),
-                      side: const BorderSide(color: FolioColors.border),
+                      side: BorderSide(color: FolioColors.border),
                     ),
                     child: CheckboxListTile(
                       value: chapter.selected,

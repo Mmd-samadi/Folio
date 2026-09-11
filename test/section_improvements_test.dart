@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nexus_chat/features/import/data/heading_topic_detector.dart';
-import 'package:nexus_chat/features/import/data/toc_refine.dart';
-import 'package:nexus_chat/features/import/data/toc_section_detector.dart';
-import 'package:nexus_chat/features/reader/data/folio_ai_service.dart';
-import 'package:nexus_chat/features/reader/domain/section_siblings.dart';
-import 'package:nexus_chat/features/reader/domain/summarize_eta.dart';
-import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
+import 'package:folio/features/import/data/heading_topic_detector.dart';
+import 'package:folio/features/import/data/toc_refine.dart';
+import 'package:folio/features/import/data/toc_section_detector.dart';
+import 'package:folio/features/reader/data/folio_ai_service.dart';
+import 'package:folio/features/reader/domain/section_siblings.dart';
+import 'package:folio/features/reader/domain/summarize_eta.dart';
+import 'package:folio/features/sessions/domain/reading_session.dart';
 
 void main() {
   group('TocSectionDetector', () {

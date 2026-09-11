@@ -3,13 +3,13 @@ import 'dart:io';
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
-import 'package:nexus_chat/core/constants/app_constants.dart';
-import 'package:nexus_chat/features/ai/data/local_gemma_service.dart';
-import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
-import 'package:nexus_chat/features/chat/data/api_exception.dart';
-import 'package:nexus_chat/features/chat/data/chat_history_builder.dart';
-import 'package:nexus_chat/features/chat/data/network_exception.dart';
-import 'package:nexus_chat/features/chat/domain/message_model.dart';
+import 'package:folio/core/constants/app_constants.dart';
+import 'package:folio/features/ai/data/local_gemma_service.dart';
+import 'package:folio/features/ai/domain/folio_ai_provider.dart';
+import 'package:folio/features/chat/data/api_exception.dart';
+import 'package:folio/features/chat/data/chat_history_builder.dart';
+import 'package:folio/features/chat/data/network_exception.dart';
+import 'package:folio/features/chat/domain/message_model.dart';
 
 class GeminiRepository {
   GeminiRepository({

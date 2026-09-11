@@ -1,7 +1,8 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:nexus_chat/core/storage/local_store.dart';
-import 'package:nexus_chat/features/ai/domain/folio_ai_provider.dart';
-import 'package:nexus_chat/features/settings/domain/folio_settings.dart';
+import 'package:folio/core/storage/local_store.dart';
+import 'package:folio/features/ai/domain/folio_ai_provider.dart';
+import 'package:folio/features/settings/domain/folio_settings.dart';
 
 class SettingsCubit extends Cubit<FolioSettings> {
   SettingsCubit({required LocalStore store})
@@ -9,6 +10,15 @@ class SettingsCubit extends Cubit<FolioSettings> {
         super(store.loadSettings());
 
   final LocalStore _store;
+
+  Future<void> hydrate() async {
+    emit(_store.loadSettings());
+  }
+
+  Future<void> setThemeMode(ThemeMode mode) async {
+    emit(state.copyWith(themeMode: mode));
+    await _store.saveSettings(state);
+  }
 
   Future<void> setFormat(String format) async {
     emit(state.copyWith(format: format));

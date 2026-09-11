@@ -1,9 +1,9 @@
 import 'dart:io';
 import 'dart:math' as math;
 
-import 'package:nexus_chat/features/chat/data/api_exception.dart';
-import 'package:nexus_chat/features/reader/data/folio_ai_service.dart';
-import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
+import 'package:folio/features/chat/data/api_exception.dart';
+import 'package:folio/features/reader/data/folio_ai_service.dart';
+import 'package:folio/features/sessions/domain/reading_session.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 /// One visual text line extracted from a PDF page (testable without a PDF).

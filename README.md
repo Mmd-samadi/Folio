@@ -1,4 +1,4 @@
-# Nexus Chat
+# Folio
 
 A Flutter chatbot app powered by the Gemini API (`gemini-3.6-flash`). Built with Clean Architecture and BLoC for state management.
 
@@ -28,7 +28,7 @@ A Flutter chatbot app powered by the Gemini API (`gemini-3.6-flash`). Built with
 
    ```bash
    git clone <repository-url>
-   cd nexus_chat
+   cd folio
    ```
 
 2. Install dependencies:

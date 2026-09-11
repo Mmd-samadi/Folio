@@ -1,13 +1,13 @@
 import 'package:go_router/go_router.dart';
-import 'package:nexus_chat/features/books/presentation/pages/book_folder_page.dart';
-import 'package:nexus_chat/features/import/presentation/pages/chapter_detection_page.dart';
-import 'package:nexus_chat/features/import/presentation/pages/manual_range_page.dart';
-import 'package:nexus_chat/features/import/presentation/pages/topic_detect_page.dart';
-import 'package:nexus_chat/features/reader/presentation/pages/reader_page.dart';
-import 'package:nexus_chat/features/sessions/domain/reading_session.dart';
-import 'package:nexus_chat/features/sessions/presentation/pages/home_page.dart';
-import 'package:nexus_chat/features/sessions/presentation/pages/splash_page.dart';
-import 'package:nexus_chat/features/settings/presentation/pages/settings_page.dart';
+import 'package:folio/features/books/presentation/pages/book_folder_page.dart';
+import 'package:folio/features/import/presentation/pages/chapter_detection_page.dart';
+import 'package:folio/features/import/presentation/pages/manual_range_page.dart';
+import 'package:folio/features/import/presentation/pages/topic_detect_page.dart';
+import 'package:folio/features/reader/presentation/pages/reader_page.dart';
+import 'package:folio/features/sessions/domain/reading_session.dart';
+import 'package:folio/features/sessions/presentation/pages/home_page.dart';
+import 'package:folio/features/sessions/presentation/pages/splash_page.dart';
+import 'package:folio/features/settings/presentation/pages/settings_page.dart';
 
 String? _extraString(Map map, String key) {
   final v = map[key];
