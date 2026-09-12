@@ -70,15 +70,34 @@ class _HomePageState extends State<HomePage> {
       final picked = await PdfImportService().pickAndStore();
       if (picked == null || !mounted) return;
 
-      await context.push(
-        '/detect-topics',
-        extra: {
-          'bookId': picked.bookId,
-          'pdfName': picked.originalName,
-          'localPath': picked.localPath,
-          'coverPath': picked.coverPath,
-        },
+      final now = DateTime.now();
+      final book = Book(
+        id: picked.bookId,
+        title: picked.title,
+        pdfName: picked.originalName,
+        sourcePdfPath: picked.localPath,
+        coverPath: picked.coverPath,
+        createdAt: now,
+        updatedAt: now,
       );
+      final session = ReadingSession(
+        id: '${now.microsecondsSinceEpoch}_1',
+        title: book.title,
+        pdfName: picked.originalName,
+        fromPage: 1,
+        toPage: picked.pageCount,
+        updatedAt: now,
+        progress: 0,
+        localPath: picked.localPath,
+        bookId: picked.bookId,
+      );
+
+      await context.read<BooksCubit>().addBookWithParts(
+            book: book,
+            parts: [session],
+          );
+      if (!mounted) return;
+      context.go('/reader/${session.id}');
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -129,7 +148,6 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _confirmDeleteBook(Book book) async {
-    final parts = context.read<BooksCubit>().partsFor(book.id);
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) {
@@ -140,8 +158,7 @@ class _HomePageState extends State<HomePage> {
             style: GoogleFonts.inter(color: FolioColors.textPrimary),
           ),
           content: Text(
-            '“${book.title}” and its ${parts.length} section'
-            '${parts.length == 1 ? '' : 's'} will be removed.',
+            '“${book.title}” will be removed.',
             style: GoogleFonts.inter(color: FolioColors.textSecondary),
           ),
           actions: [
@@ -332,9 +349,11 @@ class _HomePageState extends State<HomePage> {
                           final parts = cubit.partsFor(book.id);
                           return BookCard(
                             book: book,
-                            sectionCount: parts.length,
                             progress: cubit.overallProgress(book.id),
-                            onTap: () => context.push('/book/${book.id}'),
+                            onTap: () {
+                              if (parts.isEmpty) return;
+                              context.push('/reader/${parts.first.id}');
+                            },
                             onMenuSelected: (action) {
                               if (action == 'rename') {
                                 _renameBook(book);
@@ -404,7 +423,7 @@ class _EmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Import a PDF to create a book. Topics become sections inside that book.',
+            'Import a PDF to start reading.',
             textAlign: TextAlign.center,
             style: GoogleFonts.inter(
               fontSize: 14,

@@ -8,22 +8,18 @@ class BookCard extends StatelessWidget {
   const BookCard({
     super.key,
     required this.book,
-    required this.sectionCount,
     required this.progress,
     required this.onTap,
     required this.onMenuSelected,
   });
 
   final Book book;
-  final int sectionCount;
   final double progress;
   final VoidCallback onTap;
   final ValueChanged<String> onMenuSelected;
 
   @override
   Widget build(BuildContext context) {
-    final sectionsLabel =
-        '$sectionCount section${sectionCount == 1 ? '' : 's'}';
     final progressPct = (progress * 100).round();
 
     return Material(
@@ -66,7 +62,7 @@ class BookCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        '$sectionsLabel · $progressPct%',
+                        '$progressPct%',
                         style: GoogleFonts.inter(
                           fontSize: 12,
                           color: FolioColors.textSecondary,

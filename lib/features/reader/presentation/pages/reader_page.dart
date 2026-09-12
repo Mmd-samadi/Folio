@@ -138,13 +138,26 @@ class _ReaderPageState extends State<ReaderPage> {
     ];
   }
 
+  int _resolvedPageCount(ReadingSession session) {
+    if (_documentPageCount > 0) return _documentPageCount;
+    if (_pdfController.isReady) {
+      final count = _pdfController.pageCount;
+      if (count > 0) return count;
+    }
+    return session.toPage;
+  }
+
+  int _resolvedCurrentPage(ReadingSession session) {
+    if (_currentPdfPage > 0) return _currentPdfPage;
+    if (_pdfController.isReady) {
+      return _pdfController.pageNumber ?? session.fromPage;
+    }
+    return session.fromPage;
+  }
+
   Future<void> _openSummarizeRange(ReadingSession session) async {
-    final pageCount = _documentPageCount > 0
-        ? _documentPageCount
-        : (_pdfController.pageCount > 0 ? _pdfController.pageCount : 0);
-    final current = _currentPdfPage > 0
-        ? _currentPdfPage
-        : (_pdfController.pageNumber ?? session.fromPage);
+    final pageCount = _resolvedPageCount(session);
+    final current = _resolvedCurrentPage(session);
     final suggestedTo = pageCount > 0
         ? (current + 4).clamp(current, pageCount)
         : session.toPage;
@@ -309,9 +322,9 @@ class _ReaderPageState extends State<ReaderPage> {
   void _onPdfPrev(ReadingSession session) {
     final continuous = _isContinuousBook(session);
     final lo = continuous ? 1 : session.fromPage;
-    final current = _pdfController.pageNumber ??
-        (_currentPdfPage > 0 ? _currentPdfPage : session.fromPage);
+    final current = _resolvedCurrentPage(session);
     if (current > lo) {
+      if (!_pdfController.isReady) return;
       _pdfController.goToPage(pageNumber: current - 1);
       return;
     }
@@ -331,21 +344,18 @@ class _ReaderPageState extends State<ReaderPage> {
       );
       return;
     }
+    if (!_pdfController.isReady) return;
     _pdfController.goToPage(pageNumber: prev.fromPage);
   }
 
   void _onPdfNext(ReadingSession session) {
     final continuous = _isContinuousBook(session);
     final hi = continuous
-        ? (_documentPageCount > 0
-            ? _documentPageCount
-            : (_pdfController.pageCount > 0
-                ? _pdfController.pageCount
-                : session.toPage))
+        ? _resolvedPageCount(session)
         : session.toPage;
-    final current = _pdfController.pageNumber ??
-        (_currentPdfPage > 0 ? _currentPdfPage : session.fromPage);
+    final current = _resolvedCurrentPage(session);
     if (current < hi) {
+      if (!_pdfController.isReady) return;
       _pdfController.goToPage(pageNumber: current + 1);
       return;
     }
@@ -365,6 +375,7 @@ class _ReaderPageState extends State<ReaderPage> {
       );
       return;
     }
+    if (!_pdfController.isReady) return;
     _pdfController.goToPage(pageNumber: next.fromPage);
   }
 
@@ -376,11 +387,11 @@ class _ReaderPageState extends State<ReaderPage> {
         : opened;
     final from = continuous ? active.fromPage : opened.fromPage;
     final to = continuous ? active.toPage : opened.toPage;
-    final total = _pdfController.pageCount > 0
-        ? _pdfController.pageCount
-        : (continuous
-            ? siblings.map((s) => s.toPage).fold(0, (a, b) => a > b ? a : b)
-            : to);
+    final resolved = _resolvedPageCount(opened);
+    final siblingMax = continuous
+        ? siblings.map((s) => s.toPage).fold(0, (a, b) => a > b ? a : b)
+        : to;
+    final total = resolved > siblingMax ? resolved : siblingMax;
     final pageLabel = continuous
         ? '$pageNumber / $total'
         : SectionPageRange.pageLabel(pageNumber, from, to);
@@ -618,14 +629,7 @@ class _ReaderPageState extends State<ReaderPage> {
               title: _activeSectionTitle.isNotEmpty
                   ? _activeSectionTitle
                   : session.title,
-              onBack: () {
-                final bookId = session.bookId;
-                if (bookId != null && bookId.isNotEmpty) {
-                  context.go('/book/$bookId');
-                } else {
-                  context.go('/home');
-                }
-              },
+              onBack: () => context.go('/home'),
               onShare: () {
                 final book = _bookFor(session);
                 showExportSheet(

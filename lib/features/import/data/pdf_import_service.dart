@@ -14,6 +14,7 @@ class PickedPdf {
     required this.originalName,
     required this.localPath,
     required this.bytes,
+    required this.pageCount,
     this.coverPath,
   });
 
@@ -21,6 +22,7 @@ class PickedPdf {
   final String originalName;
   final String localPath;
   final Uint8List bytes;
+  final int pageCount;
   final String? coverPath;
 
   String get title => Book.titleFromPdfName(originalName);
@@ -49,6 +51,7 @@ class PdfImportService {
     final localPath = '${dir.path}/original.pdf';
     await File(localPath).writeAsBytes(bytes, flush: true);
 
+    final pageCount = await pageCountOf(localPath);
     final coverPath = await renderCoverPng(
       localPath,
       coverPathForPdf(localPath),
@@ -59,8 +62,23 @@ class PdfImportService {
       originalName: name,
       localPath: localPath,
       bytes: bytes,
+      pageCount: pageCount,
       coverPath: coverPath,
     );
+  }
+
+  /// Returns PDF page count, or `1` if the document cannot be opened.
+  static Future<int> pageCountOf(String pdfPath) async {
+    PdfDocument? doc;
+    try {
+      doc = await PdfDocument.openFile(pdfPath);
+      final count = doc.pages.length;
+      return count > 0 ? count : 1;
+    } catch (_) {
+      return 1;
+    } finally {
+      await doc?.dispose();
+    }
   }
 
   /// Preferred cover path next to [sourcePdfPath] (same folder as `cover.png`).
