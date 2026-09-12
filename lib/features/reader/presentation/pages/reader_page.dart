@@ -54,7 +54,6 @@ class _ReaderPageState extends State<ReaderPage> {
   var _format = 'Bullet';
   var _length = 'Medium';
   var _chatExpanded = false;
-  var _chatScope = 'Section';
   var _prompt = FolioAiService.defaultPrompt;
   var _loadingSummary = false;
   var _loadingChat = false;
@@ -82,7 +81,6 @@ class _ReaderPageState extends State<ReaderPage> {
       setState(() {
         _format = settings.format;
         _length = settings.length;
-        _chatScope = settings.chatScope;
         if (settings.customPrompt.trim().isNotEmpty) {
           _prompt = settings.customPrompt;
         }
@@ -136,6 +134,21 @@ class _ReaderPageState extends State<ReaderPage> {
     return [
       for (final segment in book.orderedSummarySegments) ...segment.bullets,
     ];
+  }
+
+  /// Flattened book summaries used as Ask Folio context.
+  String _summaryContextText(Book? book) {
+    if (book == null) return '';
+    final buffer = StringBuffer();
+    for (final segment in book.orderedSummarySegments) {
+      if (!segment.hasContent) continue;
+      if (buffer.isNotEmpty) buffer.writeln();
+      buffer.writeln('--- ${segment.pageRangeLabel} ---');
+      for (final bullet in segment.bullets) {
+        buffer.writeln('- $bullet');
+      }
+    }
+    return buffer.toString().trim();
   }
 
   int _resolvedPageCount(ReadingSession session) {
@@ -255,7 +268,35 @@ class _ReaderPageState extends State<ReaderPage> {
         isCancelled: () => jobCubit.isCancelRequested,
       );
       if (!mounted) return;
-      await books.upsertSummarySegment(bookId: bookId, segment: segment);
+
+      var toSave = segment;
+      final existingId = existingSegmentId?.trim();
+      if (existingId != null && existingId.isNotEmpty) {
+        SummarySegment? existing;
+        final list = books.byId(bookId)?.summarySegments;
+        if (list != null) {
+          for (final s in list) {
+            if (s.id == existingId) {
+              existing = s;
+              break;
+            }
+          }
+        }
+        if (existing != null && existing.bullets.isNotEmpty) {
+          toSave = segment.copyWith(
+            createdAt: existing.createdAt,
+            previousVersions: [
+              SummaryRevision(
+                bullets: List<String>.from(existing.bullets),
+                createdAt: existing.updatedAt,
+              ),
+              ...existing.previousVersions,
+            ],
+          );
+        }
+      }
+
+      await books.upsertSummarySegment(bookId: bookId, segment: toSave);
       if (!mounted) return;
       setState(() {
         _loadingSummary = false;
@@ -305,6 +346,62 @@ class _ReaderPageState extends State<ReaderPage> {
     await context.read<BooksCubit>().deleteSummarySegment(
           bookId: bookId,
           segmentId: segmentId,
+        );
+  }
+
+  Future<void> _regenerateSegmentWithPrompt(
+    ReadingSession session,
+    SummarySegment segment,
+  ) async {
+    final nextPrompt = await showRegenerateWithPromptSheet(
+      context,
+      pageRangeLabel: segment.pageRangeLabel,
+      currentPrompt: _prompt,
+    );
+    if (nextPrompt == null || !mounted) return;
+    setState(() => _prompt = nextPrompt);
+    await context.read<SettingsCubit>().setCustomPrompt(nextPrompt);
+    if (!mounted) return;
+    await _summarizeRange(
+      session,
+      fromPage: segment.fromPage,
+      toPage: segment.toPage,
+      existingSegmentId: segment.id,
+    );
+  }
+
+  Future<void> _restoreSummaryRevision(
+    ReadingSession session,
+    SummarySegment segment,
+    int revisionIndex,
+  ) async {
+    final bookId = session.bookId;
+    if (bookId == null || bookId.isEmpty) return;
+    if (revisionIndex < 0 || revisionIndex >= segment.previousVersions.length) {
+      return;
+    }
+    final chosen = segment.previousVersions[revisionIndex];
+    final remaining = [
+      for (var i = 0; i < segment.previousVersions.length; i++)
+        if (i != revisionIndex) segment.previousVersions[i],
+    ];
+    final archivedCurrent = segment.bullets.isEmpty
+        ? remaining
+        : [
+            SummaryRevision(
+              bullets: List<String>.from(segment.bullets),
+              createdAt: segment.updatedAt,
+            ),
+            ...remaining,
+          ];
+    final restored = segment.copyWith(
+      bullets: List<String>.from(chosen.bullets),
+      updatedAt: DateTime.now(),
+      previousVersions: archivedCurrent,
+    );
+    await context.read<BooksCubit>().upsertSummarySegment(
+          bookId: bookId,
+          segment: restored,
         );
   }
 
@@ -465,75 +562,25 @@ class _ReaderPageState extends State<ReaderPage> {
         provider: settings.aiProvider,
         onDeviceModel: settings.onDeviceModel,
       );
-      final String reply;
-
-      if (settings.usesOnDeviceAi) {
-        if (!session.hasLocalPdf) {
-          setState(() {
-            _messages.add(
-              const _ChatLine(
-                isUser: false,
-                text:
-                    'Import a PDF to enable Folio answers grounded in your document.',
-              ),
-            );
-            _loadingChat = false;
-            _pendingChat = null;
-          });
-          return;
-        }
-        final sectionText = await const SectionSummarizer().extractSectionText(
-          session.localPath!,
-          session.fromPage,
-          session.toPage,
-        );
-        if (!mounted) return;
-        if (sectionText.trim().isEmpty) {
-          setState(() {
-            _messages.add(
-              const _ChatLine(
-                isUser: false,
-                text:
-                    'Could not extract text from this section for on-device chat.',
-              ),
-            );
-            _loadingChat = false;
-            _pendingChat = null;
-          });
-          return;
-        }
-        reply = await ai.askAboutText(
-          contextText: sectionText,
-          question: text,
-          scope: _chatScope,
-          fromPage: session.fromPage,
-          toPage: session.toPage,
-        );
-      } else {
-        final pdfBytes = await _ensurePdfBytes(session);
-        if (!mounted) return;
-        if (pdfBytes == null) {
-          setState(() {
-            _messages.add(
-              const _ChatLine(
-                isUser: false,
-                text:
-                    'Import a PDF to enable Folio answers grounded in your document.',
-              ),
-            );
-            _loadingChat = false;
-            _pendingChat = null;
-          });
-          return;
-        }
-        reply = await ai.askAboutPdf(
-          pdfBytes: pdfBytes,
-          question: text,
-          scope: _chatScope,
-          fromPage: session.fromPage,
-          toPage: session.toPage,
-        );
+      final contextText = _summaryContextText(_bookFor(session));
+      if (contextText.isEmpty) {
+        setState(() {
+          _messages.add(
+            const _ChatLine(
+              isUser: false,
+              text:
+                  'No summaries yet. Summarize some pages first, then ask Folio about them.',
+            ),
+          );
+          _loadingChat = false;
+          _pendingChat = null;
+        });
+        return;
       }
+      final reply = await ai.askAboutText(
+        contextText: contextText,
+        question: text,
+      );
       if (!mounted) return;
       setState(() {
         _messages.add(
@@ -722,22 +769,40 @@ class _ReaderPageState extends State<ReaderPage> {
                   settings.setSummaryTextDirection(next);
                 },
               ),
-              Expanded(child: _buildSummaryBody(session)),
-              _ChatPanel(
-                expanded: _chatExpanded,
-                scope: _chatScope,
-                messages: _messages,
-                loading: _loadingChat,
-                errorMessage: _chatError,
-                controller: _chatController,
-                onToggleExpand: () =>
-                    setState(() => _chatExpanded = !_chatExpanded),
-                onScopeChanged: (s) => setState(() => _chatScope = s),
-                onSend: () => _sendChat(session),
-                onRetry: _pendingChat == null
-                    ? null
-                    : () => _sendChat(session, overrideText: _pendingChat),
-              ),
+              if (_chatExpanded)
+                Expanded(
+                  child: _ChatPanel(
+                    expanded: true,
+                    messages: _messages,
+                    loading: _loadingChat,
+                    errorMessage: _chatError,
+                    controller: _chatController,
+                    onToggleExpand: () =>
+                        setState(() => _chatExpanded = false),
+                    onSend: () => _sendChat(session),
+                    onRetry: _pendingChat == null
+                        ? null
+                        : () =>
+                            _sendChat(session, overrideText: _pendingChat),
+                  ),
+                )
+              else ...[
+                Expanded(child: _buildSummaryBody(session)),
+                _ChatPanel(
+                  expanded: false,
+                  messages: _messages,
+                  loading: _loadingChat,
+                  errorMessage: _chatError,
+                  controller: _chatController,
+                  onToggleExpand: () =>
+                      setState(() => _chatExpanded = true),
+                  onSend: () => _sendChat(session),
+                  onRetry: _pendingChat == null
+                      ? null
+                      : () =>
+                          _sendChat(session, overrideText: _pendingChat),
+                ),
+              ],
             ] else
               Expanded(child: _buildPdfTab(session)),
           ],
@@ -863,13 +928,11 @@ class _ReaderPageState extends State<ReaderPage> {
             _SummarySegmentCard(
               segment: segment,
               isRtl: isRtl,
-              onRegenerate: () => _summarizeRange(
-                session,
-                fromPage: segment.fromPage,
-                toPage: segment.toPage,
-                existingSegmentId: segment.id,
-              ),
+              onRegenerate: () =>
+                  _regenerateSegmentWithPrompt(session, segment),
               onDelete: () => _deleteSegment(session, segment.id),
+              onRestoreRevision: (index) =>
+                  _restoreSummaryRevision(session, segment, index),
               onAnnotate: (quote) {
                 final store = context.read<LocalStore>();
                 final messenger = ScaffoldMessenger.of(context);
@@ -1046,12 +1109,13 @@ class _ReaderPageState extends State<ReaderPage> {
 
 enum _ReaderTab { summary, pdf }
 
-class _SummarySegmentCard extends StatelessWidget {
+class _SummarySegmentCard extends StatefulWidget {
   const _SummarySegmentCard({
     required this.segment,
     required this.isRtl,
     required this.onRegenerate,
     required this.onDelete,
+    required this.onRestoreRevision,
     required this.onAnnotate,
   });
 
@@ -1059,7 +1123,60 @@ class _SummarySegmentCard extends StatelessWidget {
   final bool isRtl;
   final VoidCallback onRegenerate;
   final VoidCallback onDelete;
+  final ValueChanged<int> onRestoreRevision;
   final ValueChanged<String> onAnnotate;
+
+  @override
+  State<_SummarySegmentCard> createState() => _SummarySegmentCardState();
+}
+
+class _SummarySegmentCardState extends State<_SummarySegmentCard> {
+  var _expanded = true;
+  var _historyExpanded = false;
+
+  SummarySegment get segment => widget.segment;
+
+  String _formatWhen(DateTime dt) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final h = dt.hour.toString().padLeft(2, '0');
+    final m = dt.minute.toString().padLeft(2, '0');
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year} · $h:$m';
+  }
+
+  Widget _bulletRow(String text) {
+    return InkWell(
+      onLongPress: () => widget.onAnnotate(text),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            margin: const EdgeInsets.only(top: 7),
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: FolioColors.accent,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              textAlign: widget.isRtl ? TextAlign.right : TextAlign.left,
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                height: 1.6,
+                color: FolioColors.textPrimary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1076,63 +1193,159 @@ class _SummarySegmentCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  segment.pageRangeLabel,
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: FolioColors.textPrimary,
+                child: InkWell(
+                  onTap: () => setState(() => _expanded = !_expanded),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _expanded
+                              ? Icons.expand_less
+                              : Icons.expand_more,
+                          size: 20,
+                          color: FolioColors.textSecondary,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            segment.pageRangeLabel,
+                            style: GoogleFonts.inter(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: FolioColors.textPrimary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
               IconButton(
                 tooltip: 'Regenerate',
-                onPressed: onRegenerate,
+                onPressed: widget.onRegenerate,
                 icon: const Icon(Icons.refresh, size: 18),
                 color: FolioColors.textSecondary,
                 visualDensity: VisualDensity.compact,
               ),
               IconButton(
                 tooltip: 'Delete',
-                onPressed: onDelete,
+                onPressed: widget.onDelete,
                 icon: const Icon(Icons.delete_outline, size: 18),
                 color: FolioColors.textSecondary,
                 visualDensity: VisualDensity.compact,
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          for (var i = 0; i < segment.bullets.length; i++) ...[
-            if (i > 0) const SizedBox(height: 12),
-            InkWell(
-              onLongPress: () => onAnnotate(segment.bullets[i]),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    margin: const EdgeInsets.only(top: 7),
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: FolioColors.accent,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      segment.bullets[i],
-                      textAlign: isRtl ? TextAlign.right : TextAlign.left,
-                      style: GoogleFonts.inter(
-                        fontSize: 14,
-                        height: 1.6,
-                        color: FolioColors.textPrimary,
+          if (_expanded) ...[
+            const SizedBox(height: 8),
+            for (var i = 0; i < segment.bullets.length; i++) ...[
+              if (i > 0) const SizedBox(height: 12),
+              _bulletRow(segment.bullets[i]),
+            ],
+            if (segment.previousVersions.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              InkWell(
+                onTap: () =>
+                    setState(() => _historyExpanded = !_historyExpanded),
+                borderRadius: BorderRadius.circular(6),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _historyExpanded
+                            ? Icons.expand_less
+                            : Icons.expand_more,
+                        size: 18,
+                        color: FolioColors.textSecondary,
                       ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Previous versions (${segment.previousVersions.length})',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: FolioColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (_historyExpanded) ...[
+                for (var v = 0; v < segment.previousVersions.length; v++) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: FolioColors.surfaceElevated,
+                      borderRadius:
+                          BorderRadius.circular(FolioColors.radiusCard),
+                      border: Border.all(color: FolioColors.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _formatWhen(
+                                  segment.previousVersions[v].createdAt,
+                                ),
+                                style: GoogleFonts.inter(
+                                  fontSize: 11,
+                                  color: FolioColors.textDim,
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () =>
+                                  widget.onRestoreRevision(v),
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
+                              ),
+                              child: Text(
+                                'Restore',
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: FolioColors.accent,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        for (var i = 0;
+                            i < segment.previousVersions[v].bullets.length;
+                            i++) ...[
+                          if (i > 0) const SizedBox(height: 8),
+                          Text(
+                            '• ${segment.previousVersions[v].bullets[i]}',
+                            textAlign: widget.isRtl
+                                ? TextAlign.right
+                                : TextAlign.left,
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              height: 1.5,
+                              color: FolioColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ],
-              ),
-            ),
+              ],
+            ],
           ],
         ],
       ),
@@ -1337,31 +1550,173 @@ class _ChatLine {
 class _ChatPanel extends StatelessWidget {
   const _ChatPanel({
     required this.expanded,
-    required this.scope,
     required this.messages,
     required this.loading,
     required this.errorMessage,
     required this.controller,
     required this.onToggleExpand,
-    required this.onScopeChanged,
     required this.onSend,
     this.onRetry,
   });
 
   final bool expanded;
-  final String scope;
   final List<_ChatLine> messages;
   final bool loading;
   final String? errorMessage;
   final TextEditingController controller;
   final VoidCallback onToggleExpand;
-  final ValueChanged<String> onScopeChanged;
   final VoidCallback onSend;
   final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
+    final body = Column(
+      mainAxisSize: expanded ? MainAxisSize.max : MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: onToggleExpand,
+          behavior: HitTestBehavior.opaque,
+          child: Column(
+            children: [
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: FolioColors.textDim,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Text(
+                    'Ask Folio',
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  Icon(
+                    expanded
+                        ? Icons.keyboard_arrow_down
+                        : Icons.keyboard_arrow_up,
+                    color: FolioColors.textSecondary,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        if (expanded) ...[
+          const SizedBox(height: 12),
+          if (errorMessage != null) ...[
+            FolioInlineErrorBanner(
+              message: errorMessage!,
+              onRetry: onRetry,
+            ),
+            const SizedBox(height: 12),
+          ],
+          Expanded(
+            child: ListView.separated(
+              itemCount: messages.length + (loading ? 1 : 0),
+              separatorBuilder: (_, _) => const SizedBox(height: 8),
+              itemBuilder: (context, i) {
+                if (loading && i == messages.length) {
+                  return const FolioTypingIndicator();
+                }
+                final m = messages[i];
+                return Align(
+                  alignment:
+                      m.isUser ? Alignment.centerRight : Alignment.centerLeft,
+                  child: Container(
+                    constraints: BoxConstraints(
+                      maxWidth: MediaQuery.sizeOf(context).width * 0.75,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: m.isUser
+                          ? FolioColors.accent
+                          : FolioColors.surfaceElevated,
+                      borderRadius: BorderRadius.only(
+                        topLeft: const Radius.circular(12),
+                        topRight: const Radius.circular(12),
+                        bottomLeft: Radius.circular(m.isUser ? 12 : 4),
+                        bottomRight: Radius.circular(m.isUser ? 4 : 12),
+                      ),
+                    ),
+                    child: Text(
+                      m.text,
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        height: 1.4,
+                        color: FolioColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  enabled: !loading,
+                  style: GoogleFonts.inter(fontSize: 14),
+                  decoration: InputDecoration(
+                    hintText: 'Ask Folio...',
+                    filled: true,
+                    fillColor: FolioColors.surfaceElevated,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      borderSide: BorderSide(color: FolioColors.border),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      borderSide: BorderSide(color: FolioColors.border),
+                    ),
+                  ),
+                  onSubmitted: loading ? null : (_) => onSend(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Material(
+                color: loading
+                    ? FolioColors.surfaceElevated
+                    : FolioColors.accent,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: loading ? null : onSend,
+                  child: SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: Icon(
+                      Icons.arrow_upward,
+                      color: FolioColors.onAccent,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+
     return Container(
+      width: double.infinity,
       decoration: BoxDecoration(
         color: FolioColors.surface,
         borderRadius: BorderRadius.vertical(
@@ -1370,197 +1725,7 @@ class _ChatPanel extends StatelessWidget {
         border: Border(top: BorderSide(color: FolioColors.border)),
       ),
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          GestureDetector(
-            onTap: onToggleExpand,
-            behavior: HitTestBehavior.opaque,
-            child: Column(
-              children: [
-                Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: FolioColors.textDim,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Text(
-                      'Ask Folio',
-                      style: GoogleFonts.inter(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const Spacer(),
-                    if (expanded)
-                      _ScopeToggle(scope: scope, onChanged: onScopeChanged)
-                    else
-                      Icon(
-                        Icons.keyboard_arrow_up,
-                        color: FolioColors.textSecondary,
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          if (expanded) ...[
-            const SizedBox(height: 12),
-            if (errorMessage != null) ...[
-              FolioInlineErrorBanner(
-                message: errorMessage!,
-                onRetry: onRetry,
-              ),
-              const SizedBox(height: 12),
-            ],
-            SizedBox(
-              height: 160,
-              child: ListView.separated(
-                itemCount: messages.length + (loading ? 1 : 0),
-                separatorBuilder: (_, _) => const SizedBox(height: 8),
-                itemBuilder: (context, i) {
-                  if (loading && i == messages.length) {
-                    return const FolioTypingIndicator();
-                  }
-                  final m = messages[i];
-                  return Align(
-                    alignment:
-                        m.isUser ? Alignment.centerRight : Alignment.centerLeft,
-                    child: Container(
-                      constraints: BoxConstraints(
-                        maxWidth: MediaQuery.sizeOf(context).width * 0.75,
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: m.isUser
-                            ? FolioColors.accent
-                            : FolioColors.surfaceElevated,
-                        borderRadius: BorderRadius.only(
-                          topLeft: const Radius.circular(12),
-                          topRight: const Radius.circular(12),
-                          bottomLeft: Radius.circular(m.isUser ? 12 : 4),
-                          bottomRight: Radius.circular(m.isUser ? 4 : 12),
-                        ),
-                      ),
-                      child: Text(
-                        m.text,
-                        style: GoogleFonts.inter(
-                          fontSize: 13,
-                          height: 1.4,
-                          color: FolioColors.textPrimary,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: controller,
-                    enabled: !loading,
-                    style: GoogleFonts.inter(fontSize: 14),
-                    decoration: InputDecoration(
-                      hintText: 'Ask Folio...',
-                      filled: true,
-                      fillColor: FolioColors.surfaceElevated,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(20),
-                        borderSide: BorderSide(color: FolioColors.border),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(20),
-                        borderSide: BorderSide(color: FolioColors.border),
-                      ),
-                    ),
-                    onSubmitted: loading ? null : (_) => onSend(),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Material(
-                  color: loading
-                      ? FolioColors.surfaceElevated
-                      : FolioColors.accent,
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    customBorder: const CircleBorder(),
-                    onTap: loading ? null : onSend,
-                    child: SizedBox(
-                      width: 40,
-                      height: 40,
-                      child: Icon(
-                        Icons.arrow_upward,
-                        color: FolioColors.onAccent,
-                        size: 20,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _ScopeToggle extends StatelessWidget {
-  const _ScopeToggle({required this.scope, required this.onChanged});
-
-  final String scope;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    Widget pill(String label) {
-      final active = scope == label;
-      return GestureDetector(
-        onTap: () => onChanged(label),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: active ? FolioColors.accent : Colors.transparent,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Text(
-            label,
-            style: GoogleFonts.inter(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color:
-                  active ? FolioColors.onAccent : FolioColors.textSecondary,
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-        color: FolioColors.surfaceElevated,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [pill('Section'), pill('Full PDF')],
-      ),
+      child: body,
     );
   }
 }

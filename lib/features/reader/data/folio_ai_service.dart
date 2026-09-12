@@ -444,15 +444,10 @@ $clipped
   Future<String> askAboutPdf({
     required Uint8List pdfBytes,
     required String question,
-    required String scope,
-    int? fromPage,
-    int? toPage,
   }) async {
-    final scopeHint = scope == 'Section' && fromPage != null && toPage != null
-        ? 'Answer using mainly pages $fromPage–$toPage.'
-        : 'You may use the full PDF.';
     final prompt =
-        'You are Folio, a reading assistant. $scopeHint\n\nQuestion: $question';
+        'You are Folio, a reading assistant. Answer from the provided book PDF.\n\n'
+        'Question: $question';
 
     try {
       return await _completeWithPdf(prompt: prompt, pdfBytes: pdfBytes);
@@ -475,26 +470,20 @@ $clipped
   Future<String> askAboutText({
     required String contextText,
     required String question,
-    required String scope,
-    int? fromPage,
-    int? toPage,
   }) async {
-    final scopeHint = scope == 'Section' && fromPage != null && toPage != null
-        ? 'Answer using mainly pages $fromPage–$toPage of the source.'
-        : 'You may use the full provided source.';
     final maxChars = usesOnDevice ? 2800 : 100000;
     final clipped = contextText.length > maxChars
         ? contextText.substring(0, maxChars)
         : contextText;
     final prompt = '''
-You are Folio, a reading assistant. $scopeHint
+You are Folio, a reading assistant. Answer from the provided book summaries only.
 
-SOURCE:
+SUMMARIES:
 $clipped
 
 Question: $question
 
-Answer clearly and concisely. If the source does not contain enough information, say so.
+Answer clearly and concisely using the summaries. If the summaries do not contain enough information, say so.
 ''';
 
     try {

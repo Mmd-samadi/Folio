@@ -184,6 +184,173 @@ class SectionSummarizer {
     }
   }
 
+  /// Extracts PDF text relevant to [question] within [maxChars].
+  ///
+  /// Prefers explicit page ranges in the question; otherwise ranks pages by
+  /// simple term overlap and fills the budget with the best pages. Falls back
+  /// to the start of the document when nothing matches.
+  Future<String> extractRelevantTextForQuestion({
+    required String pdfPath,
+    required String question,
+    int maxChars = 2800,
+    int? pageCountHint,
+  }) async {
+    PdfDocument? doc;
+    try {
+      doc = await PdfDocument.openFile(pdfPath);
+      if (doc.pages.isEmpty) return '';
+      final pageCount = doc.pages.length;
+      final hint = pageCountHint != null && pageCountHint > 0
+          ? math.min(pageCountHint, pageCount)
+          : pageCount;
+
+      final explicit = _parsePageRangeFromQuestion(question, hint);
+      if (explicit != null) {
+        final labeled = await _loadLabeledPages(
+          doc,
+          fromPage: explicit.$1,
+          toPage: explicit.$2,
+          maxChars: maxChars,
+        );
+        if (labeled.trim().isNotEmpty) return labeled;
+      }
+
+      final queryTerms = _queryTerms(question);
+      if (queryTerms.isEmpty) {
+        return _loadLabeledPages(
+          doc,
+          fromPage: 1,
+          toPage: hint,
+          maxChars: maxChars,
+        );
+      }
+
+      final scored = <({int page, int score, String text})>[];
+      // Cap scan for very large PDFs so chat stays responsive.
+      final scanTo = math.min(hint, 120);
+      for (var p = 1; p <= scanTo; p++) {
+        final page = doc.pages[p - 1];
+        final raw = (await page.loadText())?.fullText.trim() ?? '';
+        if (raw.isEmpty) continue;
+        final lower = raw.toLowerCase();
+        var score = 0;
+        for (final term in queryTerms) {
+          if (lower.contains(term)) score += 1;
+        }
+        if (score > 0) {
+          scored.add((page: p, score: score, text: raw));
+        }
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      scored.sort((a, b) {
+        final byScore = b.score.compareTo(a.score);
+        if (byScore != 0) return byScore;
+        return a.page.compareTo(b.page);
+      });
+
+      if (scored.isEmpty) {
+        return _loadLabeledPages(
+          doc,
+          fromPage: 1,
+          toPage: hint,
+          maxChars: maxChars,
+        );
+      }
+
+      final buffer = StringBuffer();
+      var used = 0;
+      for (final hit in scored) {
+        final chunk = '--- Page ${hit.page} ---\n${hit.text}';
+        if (used > 0 && used + chunk.length + 2 > maxChars) break;
+        if (buffer.isNotEmpty) buffer.writeln();
+        if (used == 0 && chunk.length > maxChars) {
+          buffer.write(chunk.substring(0, maxChars));
+          break;
+        }
+        buffer.write(chunk);
+        used += chunk.length + 2;
+        if (used >= maxChars) break;
+      }
+      return buffer.toString().trim();
+    } catch (_) {
+      return '';
+    } finally {
+      await doc?.dispose();
+    }
+  }
+
+  static Future<String> _loadLabeledPages(
+    PdfDocument doc, {
+    required int fromPage,
+    required int toPage,
+    required int maxChars,
+  }) async {
+    final lo = fromPage.clamp(1, doc.pages.length);
+    final hi = toPage.clamp(1, doc.pages.length);
+    final buffer = StringBuffer();
+    var used = 0;
+    for (var p = lo; p <= hi; p++) {
+      final raw = (await doc.pages[p - 1].loadText())?.fullText.trim() ?? '';
+      if (raw.isEmpty) continue;
+      final chunk = '--- Page $p ---\n$raw';
+      if (used > 0 && used + chunk.length + 2 > maxChars) break;
+      if (buffer.isNotEmpty) buffer.writeln();
+      if (used == 0 && chunk.length > maxChars) {
+        buffer.write(chunk.substring(0, maxChars));
+        break;
+      }
+      buffer.write(chunk);
+      used += chunk.length + 2;
+      if (used >= maxChars) break;
+      await Future<void>.delayed(Duration.zero);
+    }
+    return buffer.toString().trim();
+  }
+
+  /// Parses ranges like `page 1-5`, `pages 10–20`, `p. 3 to 7`, `pp. 12`.
+  static (int, int)? _parsePageRangeFromQuestion(String question, int maxPage) {
+    final q = question.toLowerCase();
+    final range = RegExp(
+      r'(?:pages?|pp?\.?)\s*(\d+)\s*(?:[-–—]|to)\s*(\d+)',
+    ).firstMatch(q);
+    if (range != null) {
+      var a = int.tryParse(range.group(1)!) ?? 0;
+      var b = int.tryParse(range.group(2)!) ?? 0;
+      if (a <= 0 || b <= 0) return null;
+      if (a > b) {
+        final t = a;
+        a = b;
+        b = t;
+      }
+      return (a.clamp(1, maxPage), b.clamp(1, maxPage));
+    }
+    final single = RegExp(r'(?:pages?|pp?\.?)\s*(\d+)').firstMatch(q);
+    if (single != null) {
+      final p = int.tryParse(single.group(1)!) ?? 0;
+      if (p <= 0) return null;
+      final clamped = p.clamp(1, maxPage);
+      return (clamped, clamped);
+    }
+    return null;
+  }
+
+  static Set<String> _queryTerms(String question) {
+    final stop = {
+      'a', 'an', 'the', 'is', 'are', 'was', 'were', 'what', 'who', 'whom',
+      'which', 'where', 'when', 'why', 'how', 'do', 'does', 'did', 'can',
+      'could', 'would', 'should', 'about', 'from', 'this', 'that', 'with',
+      'for', 'and', 'or', 'of', 'to', 'in', 'on', 'it', 'be', 'page', 'pages',
+      'pdf', 'book', 'please', 'tell', 'me',
+    };
+    return question
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+        .split(RegExp(r'\s+'))
+        .where((t) => t.length > 2 && !stop.contains(t))
+        .toSet();
+  }
+
   static void _throwIfCancelled(bool Function()? isCancelled) {
     if (isCancelled?.call() ?? false) {
       throw const CancelledException('Summarization cancelled.');

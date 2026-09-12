@@ -187,6 +187,111 @@ Future<String?> showPromptEditorSheet(
   );
 }
 
+/// Returns the prompt to use for regenerate, or null if cancelled.
+Future<String?> showRegenerateWithPromptSheet(
+  BuildContext context, {
+  required String pageRangeLabel,
+  required String currentPrompt,
+}) {
+  final controller = TextEditingController(text: currentPrompt);
+  return showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: FolioColors.surface,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(FolioColors.radiusSheet),
+      ),
+    ),
+    builder: (context) {
+      final bottom = MediaQuery.viewInsetsOf(context).bottom;
+      return Padding(
+        padding: EdgeInsets.fromLTRB(24, 12, 24, 24 + bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const FolioSheetHandle(),
+            const SizedBox(height: 16),
+            Text(
+              'Regenerate summary',
+              style: GoogleFonts.inter(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              pageRangeLabel,
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                color: FolioColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Prompt',
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: FolioColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: controller,
+              maxLines: 6,
+              style: GoogleFonts.inter(fontSize: 14, height: 1.5),
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: () {
+                  controller.text = FolioAiService.defaultPrompt;
+                },
+                child: Text(
+                  'Reset to default',
+                  style: GoogleFonts.inter(
+                    decoration: TextDecoration.underline,
+                    color: FolioColors.textSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: FolioSecondaryButton(
+                    label: 'Cancel',
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FolioPrimaryButton(
+                    label: 'Regenerate',
+                    height: 44,
+                    onPressed: () {
+                      final next = controller.text.trim();
+                      Navigator.pop(
+                        context,
+                        next.isEmpty ? FolioAiService.defaultPrompt : next,
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
 enum ExportFormat { plainText, pdf, markdown }
 
 Future<void> showExportSheet(

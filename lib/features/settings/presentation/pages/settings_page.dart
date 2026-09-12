@@ -388,18 +388,6 @@ class _SettingsPageState extends State<SettingsPage> {
                   onPicked: (v) => context.read<SettingsCubit>().setLength(v),
                 ),
               ),
-              _SettingRow(
-                label: 'Default chat scope',
-                value: settings.chatScope,
-                onTap: () => _pickOption(
-                  context: context,
-                  title: 'Default chat scope',
-                  options: const ['Section', 'Full PDF'],
-                  current: settings.chatScope,
-                  onPicked: (v) =>
-                      context.read<SettingsCubit>().setChatScope(v),
-                ),
-              ),
               const _SettingRow(
                 label: 'Theme',
                 value: 'Dark',
