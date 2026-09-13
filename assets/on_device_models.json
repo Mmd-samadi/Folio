@@ -16,19 +16,6 @@
       "deviceTierLabel": "8GB+ phones"
     },
     {
-      "id": "phi4-mini-reasoning",
-      "label": "Phi-4 Mini Reasoning",
-      "sizeLabel": "~2.8 GB",
-      "fileName": "Phi-4-mini-reasoning.litertlm",
-      "url": "https://huggingface.co/litert-community/Phi-4-mini-reasoning/resolve/main/model.litertlm",
-      "modelType": "general",
-      "fileType": "litertlm",
-      "description": "Step-by-step reasoning for harder study questions.",
-      "needsAuth": false,
-      "minRamGb": 8,
-      "deviceTierLabel": "8GB+ phones"
-    },
-    {
       "id": "gemma4-e4b",
       "label": "Gemma 4 E4B",
       "sizeLabel": "~4.3 GB",
@@ -37,19 +24,6 @@
       "modelType": "gemma4",
       "fileType": "litertlm",
       "description": "Strongest public Gemma 4 build; needs more RAM.",
-      "needsAuth": false,
-      "minRamGb": 12,
-      "deviceTierLabel": "12GB+ phones"
-    },
-    {
-      "id": "phi4-mini-instruct",
-      "label": "Phi-4 Mini Instruct",
-      "sizeLabel": "~3.9 GB",
-      "fileName": "Phi-4-mini-instruct_multi-prefill-seq_q8_ekv4096.task",
-      "url": "https://huggingface.co/litert-community/Phi-4-mini-instruct/resolve/main/Phi-4-mini-instruct_multi-prefill-seq_q8_ekv4096.task",
-      "modelType": "general",
-      "fileType": "task",
-      "description": "High-quality instruct model for long summaries.",
       "needsAuth": false,
       "minRamGb": 12,
       "deviceTierLabel": "12GB+ phones"

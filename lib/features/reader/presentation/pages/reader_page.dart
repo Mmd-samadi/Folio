@@ -22,6 +22,9 @@ import 'package:folio/features/reader/domain/section_siblings.dart';
 import 'package:folio/features/reader/domain/summarize_eta.dart';
 import 'package:folio/features/reader/domain/summary_segment.dart';
 import 'package:folio/features/reader/presentation/cubit/summarize_job_cubit.dart';
+import 'package:folio/features/ai/data/local_gemma_service.dart';
+import 'package:folio/features/ai/domain/folio_ai_provider.dart';
+import 'package:folio/features/ai/domain/on_device_model.dart';
 import 'package:folio/features/reader/presentation/widgets/reader_sheets.dart';
 import 'package:folio/features/sessions/domain/reading_session.dart';
 import 'package:folio/features/sessions/presentation/cubit/sessions_cubit.dart';
@@ -643,6 +646,56 @@ class _ReaderPageState extends State<ReaderPage> {
     if (result != null) onPicked(result);
   }
 
+  Future<void> _pickOnDeviceModel() async {
+    final settings = context.read<SettingsCubit>().state;
+    final currentId = settings.onDeviceModelId;
+    final models = OnDeviceModels.catalog;
+    final local = LocalGemmaService.instance;
+
+    final installed = <String, bool>{};
+    for (final model in models) {
+      installed[model.id] = await local.isInstalled(model);
+    }
+    if (!mounted) return;
+
+    final picked = await showModalBottomSheet<OnDeviceModel>(
+      context: context,
+      backgroundColor: FolioColors.surface,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final model in models)
+              ListTile(
+                title: Text(model.label),
+                subtitle: Text(
+                  installed[model.id] == true
+                      ? model.sizeLabel
+                      : '${model.sizeLabel} · Not downloaded',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    color: FolioColors.textSecondary,
+                  ),
+                ),
+                trailing: model.id == currentId
+                    ? Icon(Icons.check, color: FolioColors.accent)
+                    : null,
+                onTap: () => Navigator.pop(context, model),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+
+    if (installed[picked.id] == true) {
+      await context.read<SettingsCubit>().setOnDeviceModelId(picked.id);
+      return;
+    }
+
+    await showLocalModelDownloadSheet(context, model: picked);
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = context.select<SessionsCubit, ReadingSession?>(
@@ -742,6 +795,14 @@ class _ReaderPageState extends State<ReaderPage> {
               _FormatBar(
                 format: _format,
                 length: _length,
+                provider: context.select<SettingsCubit, String>(
+                  (c) => c.state.aiProvider.label,
+                ),
+                model: context.select<SettingsCubit, String?>(
+                  (c) => c.state.usesOnDeviceAi
+                      ? c.state.onDeviceModel.label
+                      : null,
+                ),
                 isRtl: context.select<SettingsCubit, bool>(
                   (c) => c.state.summaryIsRtl,
                 ),
@@ -763,6 +824,26 @@ class _ReaderPageState extends State<ReaderPage> {
                     await context.read<SettingsCubit>().setLength(v);
                   },
                 ),
+                onProvider: () {
+                  final current =
+                      context.read<SettingsCubit>().state.aiProvider.label;
+                  _pickDropdown(
+                    title: 'AI provider',
+                    options:
+                        FolioAiProvider.values.map((e) => e.label).toList(),
+                    current: current,
+                    onPicked: (v) async {
+                      final provider = FolioAiProvider.values.firstWhere(
+                        (e) => e.label == v,
+                        orElse: () => FolioAiProvider.onDevice,
+                      );
+                      await context.read<SettingsCubit>().setAiProvider(
+                            provider,
+                          );
+                    },
+                  );
+                },
+                onModel: _pickOnDeviceModel,
                 onToggleDirection: () {
                   final settings = context.read<SettingsCubit>();
                   final next = settings.state.summaryIsRtl ? 'ltr' : 'rtl';
@@ -1460,17 +1541,25 @@ class _FormatBar extends StatelessWidget {
   const _FormatBar({
     required this.format,
     required this.length,
+    required this.provider,
     required this.isRtl,
     required this.onFormat,
     required this.onLength,
+    required this.onProvider,
     required this.onToggleDirection,
+    this.model,
+    this.onModel,
   });
 
   final String format;
   final String length;
+  final String provider;
+  final String? model;
   final bool isRtl;
   final VoidCallback onFormat;
   final VoidCallback onLength;
+  final VoidCallback onProvider;
+  final VoidCallback? onModel;
   final VoidCallback onToggleDirection;
 
   @override
@@ -1512,11 +1601,20 @@ class _FormatBar extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
       color: FolioColors.surfaceElevated,
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          chip(format, onFormat),
-          const SizedBox(width: 8),
-          chip(length, onLength),
-          const Spacer(),
+          Expanded(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                chip(format, onFormat),
+                chip(length, onLength),
+                chip(provider, onProvider),
+                if (model != null && onModel != null) chip(model!, onModel!),
+              ],
+            ),
+          ),
           TextButton.icon(
             onPressed: onToggleDirection,
             icon: Icon(
