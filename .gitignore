@@ -3,10 +3,12 @@
 *.log
 *.pyc
 *.swp
+*.profraw
 .DS_Store
 .atom/
 .build/
 .buildlog/
+.cursor/
 .history
 .svn/
 .swiftpm/

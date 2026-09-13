@@ -1,9 +1,0 @@
-{
-  "name": "Dr. Daraei Game Cards 5–10",
-  "id": "daraei-game-cards-5-10",
-  "api": "1.0.0",
-  "main": "code.js",
-  "editorType": ["figma"],
-  "documentAccess": "dynamic-page",
-  "networkAccess": { "allowedDomains": [] }
-}
