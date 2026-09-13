@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:folio/core/constants/app_constants.dart';
-import 'package:folio/core/theme/theme_cubit.dart';
 import 'package:folio/features/chat/data/gemini_repository.dart';
 import 'package:folio/features/chat/presentation/bloc/chat_bloc.dart';
 import 'package:folio/features/chat/presentation/bloc/chat_event.dart';
@@ -75,24 +74,6 @@ class _ChatPageState extends State<ChatPage> {
           return Scaffold(
             appBar: AppBar(
               title: const Text(AppConstants.appTitle),
-              actions: [
-                BlocBuilder<ThemeCubit, ThemeMode>(
-                  builder: (context, themeMode) {
-                    final isDark = themeMode == ThemeMode.dark ||
-                        (themeMode == ThemeMode.system &&
-                            MediaQuery.platformBrightnessOf(context) ==
-                                Brightness.dark);
-
-                    return IconButton(
-                      tooltip: 'Toggle theme',
-                      onPressed: () => context.read<ThemeCubit>().toggleTheme(),
-                      icon: Icon(
-                        isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-                      ),
-                    );
-                  },
-                ),
-              ],
             ),
             body: Column(
               children: [

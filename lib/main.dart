@@ -9,7 +9,6 @@ import 'package:folio/core/router/app_router.dart';
 import 'package:folio/core/storage/local_store.dart';
 import 'package:folio/core/theme/app_theme.dart';
 import 'package:folio/core/theme/folio_colors.dart';
-import 'package:folio/core/theme/theme_cubit.dart';
 import 'package:folio/features/ai/data/local_gemma_service.dart';
 import 'package:folio/features/ai/data/on_device_model_catalog_service.dart';
 import 'package:folio/features/ai/presentation/cubit/on_device_load_cubit.dart';
@@ -52,7 +51,6 @@ class _FolioAppState extends State<FolioApp> {
   late final SettingsCubit _settingsCubit;
   late final SummarizeJobCubit _summarizeJobCubit;
   late final OnDeviceLoadCubit _onDeviceLoadCubit;
-  late final ThemeCubit _themeCubit;
   late final router = createAppRouter();
 
   @override
@@ -63,7 +61,6 @@ class _FolioAppState extends State<FolioApp> {
     _settingsCubit = SettingsCubit(store: widget.store);
     _summarizeJobCubit = SummarizeJobCubit();
     _onDeviceLoadCubit = OnDeviceLoadCubit();
-    _themeCubit = ThemeCubit();
     LocalGemmaService.instance.attachLoadCubit(_onDeviceLoadCubit);
     _hydrate();
   }
@@ -72,13 +69,11 @@ class _FolioAppState extends State<FolioApp> {
     await _sessionsCubit.hydrate();
     await _booksCubit.hydrate();
     await _settingsCubit.hydrate();
-    _themeCubit.setMode(_settingsCubit.state.themeMode);
   }
 
   @override
   void dispose() {
     _onDeviceLoadCubit.close();
-    _themeCubit.close();
     _summarizeJobCubit.close();
     _booksCubit.close();
     _sessionsCubit.close();
@@ -95,27 +90,22 @@ class _FolioAppState extends State<FolioApp> {
         BlocProvider.value(value: _settingsCubit),
         BlocProvider.value(value: _summarizeJobCubit),
         BlocProvider.value(value: _onDeviceLoadCubit),
-        BlocProvider.value(value: _themeCubit),
         RepositoryProvider.value(value: widget.store),
       ],
-      child: BlocBuilder<ThemeCubit, ThemeMode>(
-        builder: (context, themeMode) {
-          return MaterialApp.router(
-            debugShowCheckedModeBanner: false,
-            title: AppConstants.appTitle,
-            theme: AppTheme.lightTheme,
-            darkTheme: AppTheme.darkTheme,
-            themeMode: themeMode,
-            routerConfig: router,
-            builder: (context, child) {
-              FolioColors.bind(Theme.of(context));
-              return Stack(
-                children: [
-                  child ?? const SizedBox.shrink(),
-                  const OnDeviceResourceBanner(),
-                ],
-              );
-            },
+      child: MaterialApp.router(
+        debugShowCheckedModeBanner: false,
+        title: AppConstants.appTitle,
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: ThemeMode.dark,
+        routerConfig: router,
+        builder: (context, child) {
+          FolioColors.bind(Theme.of(context));
+          return Stack(
+            children: [
+              child ?? const SizedBox.shrink(),
+              const OnDeviceResourceBanner(),
+            ],
           );
         },
       ),

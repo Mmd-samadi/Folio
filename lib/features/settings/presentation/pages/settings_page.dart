@@ -5,7 +5,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:folio/core/constants/app_constants.dart';
 import 'package:folio/core/errors/cancelled_exception.dart';
 import 'package:folio/core/theme/folio_colors.dart';
-import 'package:folio/core/theme/theme_cubit.dart';
 import 'package:folio/features/ai/data/local_gemma_service.dart';
 import 'package:folio/features/ai/data/on_device_model_catalog_service.dart';
 import 'package:folio/features/ai/domain/folio_ai_provider.dart';
@@ -262,27 +261,6 @@ class _SettingsPageState extends State<SettingsPage> {
           return ListView(
             children: [
               _SettingRow(
-                label: 'Appearance',
-                value: ThemeCubit.label(settings.themeMode),
-                onTap: () => _pickOption(
-                  context: context,
-                  title: 'Appearance',
-                  options: const ['Light', 'Dark', 'System'],
-                  current: ThemeCubit.label(settings.themeMode),
-                  onPicked: (v) async {
-                    final mode = switch (v) {
-                      'Light' => ThemeMode.light,
-                      'System' => ThemeMode.system,
-                      _ => ThemeMode.dark,
-                    };
-                    await context.read<SettingsCubit>().setThemeMode(mode);
-                    if (context.mounted) {
-                      context.read<ThemeCubit>().setMode(mode);
-                    }
-                  },
-                ),
-              ),
-              _SettingRow(
                 label: 'AI provider',
                 value: settings.aiProvider.label,
                 onTap: () => _pickOption(
@@ -387,10 +365,6 @@ class _SettingsPageState extends State<SettingsPage> {
                   current: settings.length,
                   onPicked: (v) => context.read<SettingsCubit>().setLength(v),
                 ),
-              ),
-              const _SettingRow(
-                label: 'Theme',
-                value: 'Dark',
               ),
               if (!settings.usesOnDeviceAi)
                 _SettingRow(
